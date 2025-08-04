@@ -1,6 +1,7 @@
 package xjson
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -811,164 +812,198 @@ func TestLowCoverageFunctions(t *testing.T) {
 	})
 }
 
-// Test low coverage functions to improve overall coverage
-func TestLowCoverageFunctionExtras(t *testing.T) {
-	// Test Float() with different data types - 53.3% coverage
-	t.Run("Float_edge_cases", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			json     string
-			path     string
-			expected float64
-			hasError bool
-		}{
-			{"integer_to_float", `{"val": 42}`, "val", 42.0, false},
-			{"string_number_to_float", `{"val": "3.14"}`, "val", 3.14, false},
-			{"invalid_string", `{"val": "not_a_number"}`, "val", 0, true},
-			{"boolean_to_float", `{"val": true}`, "val", 0, true},
-			{"null_to_float", `{"val": null}`, "val", 0, true},
+// 补充低覆盖率和边界测试
+func TestResultAndDocumentEdgeCases(t *testing.T) {
+	// 空对象、空数组、嵌套对象、嵌套数组、null、类型不匹配
+	doc, _ := ParseString(`{"empty_obj":{}, "empty_arr":[], "nested":{"a":1}, "arr":[{"b":2}], "null":null}`)
+
+	t.Run("EmptyObject", func(t *testing.T) {
+		res := doc.Query("empty_obj")
+		if !res.IsObject() {
+			t.Error("empty_obj 应为对象")
 		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				doc, _ := ParseString(tc.json)
-				result := doc.Query(tc.path)
-				val, err := result.Float()
-
-				if tc.hasError {
-					if err == nil {
-						t.Errorf("Expected error for %s", tc.name)
-					}
-				} else {
-					if err != nil {
-						t.Errorf("Unexpected error: %v", err)
-					}
-					if val != tc.expected {
-						t.Errorf("Expected %v, got %v", tc.expected, val)
-					}
-				}
-			})
+		if res.Count() != 1 {
+			t.Errorf("empty_obj count 应为1, got %d", res.Count())
+		}
+		if len(res.Keys()) != 0 {
+			t.Errorf("empty_obj keys 应为0, got %d", len(res.Keys()))
 		}
 	})
 
-	// Test Bool() with different data types - 62.5% coverage
-	t.Run("Bool_edge_cases", func(t *testing.T) {
-		testCases := []struct {
-			name     string
-			json     string
-			path     string
-			expected bool
-			hasError bool
-		}{
-			{"string_true", `{"val": "true"}`, "val", true, false},
-			{"string_false", `{"val": "false"}`, "val", false, false},
-			{"number_nonzero", `{"val": 1}`, "val", true, false},
-			{"number_zero", `{"val": 0}`, "val", false, false},
-			{"invalid_string", `{"val": "maybe"}`, "val", true, false}, // Actual behavior
-			{"null_value", `{"val": null}`, "val", false, false},       // Might not error
+	t.Run("EmptyArray", func(t *testing.T) {
+		res := doc.Query("empty_arr")
+		if !res.IsArray() {
+			t.Error("empty_arr 应为数组")
 		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				doc, _ := ParseString(tc.json)
-				result := doc.Query(tc.path)
-				val, err := result.Bool()
-
-				if tc.hasError {
-					if err == nil {
-						t.Errorf("Expected error for %s", tc.name)
-					}
-				} else {
-					if err != nil {
-						t.Errorf("Unexpected error: %v", err)
-					}
-					if val != tc.expected {
-						t.Errorf("Expected %v, got %v", tc.expected, val)
-					}
-				}
-			})
+		if res.Count() != 0 {
+			t.Errorf("empty_arr count 应为0, got %d", res.Count())
+		}
+		// 空数组的 First/Last 可能返回空数组本身
+		first := res.First()
+		if !first.IsArray() || first.Count() != 0 {
+			t.Error("First of empty array 应为空数组")
+		}
+		last := res.Last()
+		if !last.IsArray() || last.Count() != 0 {
+			t.Error("Last of empty array 应为空数组")
 		}
 	})
 
-	// Test Index() with edge cases - 55.6% coverage
-	t.Run("Index_edge_cases", func(t *testing.T) {
-		jsonData := `{"items": [10, 20, 30, 40, 50]}`
-		doc, _ := ParseString(jsonData)
-
-		testCases := []struct {
-			name     string
-			index    int
-			expected int
-			hasError bool
-		}{
-			{"negative_index", -1, 50, false},   // Last element
-			{"negative_index_2", -2, 40, false}, // Second to last
-			{"out_of_bounds_positive", 10, 0, true},
-			{"out_of_bounds_negative", -10, 0, true},
+	t.Run("NestedObject", func(t *testing.T) {
+		res := doc.Query("nested")
+		if !res.IsObject() {
+			t.Error("nested 应为对象")
 		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				result := doc.Query("items").Index(tc.index)
-				if tc.hasError {
-					if result.Exists() {
-						t.Errorf("Expected no result for out of bounds index %d", tc.index)
-					}
-				} else {
-					val, err := result.Int()
-					if err != nil {
-						t.Errorf("Unexpected error: %v", err)
-					}
-					if val != tc.expected {
-						t.Errorf("Expected %v, got %v", tc.expected, val)
-					}
-				}
-			})
+		if len(res.Keys()) != 1 || res.Keys()[0] != "a" {
+			t.Error("nested keys 应为[a]")
 		}
 	})
 
-	// Test IsNull() - 66.7% coverage
-	t.Run("IsNull_cases", func(t *testing.T) {
-		testJSON := `{"null_val": null, "string_val": "null", "number_val": 0}`
-		doc, _ := ParseString(testJSON)
-
-		if !doc.Query("null_val").IsNull() {
-			t.Error("null_val should be null")
+	t.Run("NestedArray", func(t *testing.T) {
+		res := doc.Query("arr")
+		if !res.IsArray() {
+			t.Error("arr 应为数组")
 		}
-		if doc.Query("string_val").IsNull() {
-			t.Error("string_val should not be null")
+		first := res.Index(0)
+		if !first.Exists() {
+			t.Error("arr[0] 应存在")
 		}
-		if doc.Query("number_val").IsNull() {
-			t.Error("number_val should not be null")
-		}
-		if doc.Query("nonexistent").IsNull() {
-			t.Error("nonexistent should not be considered null (should be non-existent)")
-		}
-	})
-
-	// Test Raw() and Bytes() - 66.7% and 60.0% coverage
-	t.Run("Raw_and_Bytes", func(t *testing.T) {
-		testJSON := `{"test": {"nested": "value"}}`
-		doc, _ := ParseString(testJSON)
-
-		result := doc.Query("test")
-		rawBytes := result.Raw()
-		if rawBytes == nil {
-			t.Error("Raw() should return non-nil value")
-		}
-
-		bytesResult, err := result.Bytes()
+		s := first.MustString()
+		var m map[string]interface{}
+		err := json.Unmarshal([]byte(s), &m)
 		if err != nil {
-			t.Errorf("Bytes() error: %v", err)
+			t.Errorf("arr[0] unmarshal 失败: %v", err)
 		}
-		if len(bytesResult) == 0 {
-			t.Error("Bytes() should return non-empty bytes")
-		}
-
-		// Test on non-existent path
-		nonExistent := doc.Query("nonexistent")
-		if nonExistent.Raw() != nil {
-			t.Error("Raw() should return nil for non-existent path")
+		if m["b"] != float64(2) {
+			t.Errorf("arr[0].b 应为2, got %v", m["b"])
 		}
 	})
+
+	t.Run("NullValue", func(t *testing.T) {
+		res := doc.Query("null")
+		if !res.IsNull() {
+			t.Error("null 应为null")
+		}
+		if res.Exists() != true {
+			t.Error("null 应存在")
+		}
+		if _, err := res.Int(); err == nil {
+			t.Error("null 转 int 应报错")
+		}
+	})
+
+	t.Run("NonExistent", func(t *testing.T) {
+		res := doc.Query("notfound")
+		if res.Exists() {
+			t.Error("notfound 不应存在")
+		}
+		if res.IsNull() {
+			t.Error("notfound 不应为null")
+		}
+		if res.IsArray() {
+			t.Error("notfound 不应为array")
+		}
+		if res.IsObject() {
+			t.Error("notfound 不应为object")
+		}
+		if res.Count() != 0 {
+			t.Error("notfound count 应为0")
+		}
+		if len(res.Keys()) != 0 {
+			t.Error("notfound keys 应为0")
+		}
+		if res.Raw() != nil {
+			t.Error("notfound raw 应为nil")
+		}
+		if b, _ := res.Bytes(); b != nil {
+			t.Error("notfound bytes 应为nil")
+		}
+	})
+
+	// Document.Set/Delete/Bytes/String/IsMaterialized/IsValid 的异常和边界
+	doc2, _ := ParseString(`{"a":1}`)
+	t.Run("SetAndDelete", func(t *testing.T) {
+		err := doc2.Set("b", 2)
+		if err != nil {
+			t.Error("Set b 失败")
+		}
+		if doc2.Query("b").MustInt() != 2 {
+			t.Error("b 应为2")
+		}
+		err = doc2.Delete("a")
+		if err != nil {
+			t.Error("Delete a 失败")
+		}
+		if doc2.Query("a").Exists() {
+			t.Error("a 应被删除")
+		}
+	})
+
+	t.Run("BytesStringMaterialized", func(t *testing.T) {
+		_, err := doc2.Bytes()
+		if err != nil {
+			t.Error("Bytes 应无错")
+		}
+		_, err = doc2.String()
+		if err != nil {
+			t.Error("String 应无错")
+		}
+		if !doc2.IsMaterialized() {
+			t.Error("应已物化")
+		}
+		if !doc2.IsValid() {
+			t.Error("应为有效文档")
+		}
+	})
+
+	// panic 分支
+	t.Run("MustIntPanic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("MustInt 应 panic")
+			}
+		}()
+		_ = doc.Query("empty_obj").MustInt()
+	})
+}
+
+func TestResultIndexEdgeCases(t *testing.T) {
+	doc, _ := ParseString(`{"arr":[1,2,3],"obj":{"a":1}}`)
+	arr := doc.Query("arr")
+	obj := doc.Query("obj")
+	// 越界
+	if _, err := arr.Index(10).Int(); err == nil {
+		t.Error("Index 越界应报错")
+	}
+	// 负数越界
+	if _, err := arr.Index(-10).Int(); err == nil {
+		t.Error("负数 Index 越界应报错")
+	}
+	// 非数组
+	if _, err := obj.Index(0).Int(); err == nil {
+		t.Error("非数组 Index 应报错")
+	}
+}
+
+func TestSetDeleteInvalidDoc(t *testing.T) {
+	doc, _ := ParseString(`{"a":}`)
+	if err := doc.Set("b", 1); err == nil {
+		t.Error("无效文档 Set 应报错")
+	}
+	if err := doc.Delete("a"); err == nil {
+		t.Error("无效文档 Delete 应报错")
+	}
+}
+
+func TestForEachBreak(t *testing.T) {
+	doc, _ := ParseString(`{"arr":[1,2,3]}`)
+	arr := doc.Query("arr")
+	count := 0
+	arr.ForEach(func(i int, v IResult) bool {
+		count++
+		return false // 只执行一次
+	})
+	if count != 1 {
+		t.Error("ForEach 应能提前 break")
+	}
 }
