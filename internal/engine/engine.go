@@ -175,16 +175,97 @@ func (e *Engine) executeChildStep(ctx *QueryContext, step parser.Step, remaining
 
 // executeDescendantStep executes a descendant step (recursive search)
 func (e *Engine) executeDescendantStep(ctx *QueryContext, step parser.Step, remaining []parser.Step) ([]Match, error) {
-	// For recursive search (..), we need to implement a more sophisticated approach
-	// For now, fall back to child step and add basic recursive functionality
+	var matches []Match
 
-	matches, err := e.executeChildStep(ctx, step, remaining)
-	if err != nil {
-		return nil, err
+	// 如果step有具体的名字，我们需要在所有深度上查找这个名字
+	if step.Name != "" {
+		// 递归搜索所有层级中名为step.Name的字段
+		value, ok := ctx.scanner.GetValueAt()
+		if !ok {
+			return matches, nil
+		}
+
+		var current interface{}
+		if err := json.Unmarshal(value, &current); err != nil {
+			return matches, nil
+		}
+
+		// 递归搜索函数
+		var searchForField func(node interface{}, path string, depth int)
+		searchForField = func(node interface{}, path string, depth int) {
+			// 防止深度过深和循环引用
+			if depth > 50 { // 减少最大深度
+				return
+			}
+
+			switch v := node.(type) {
+			case map[string]interface{}:
+				// 检查当前对象是否有目标字段
+				if value, exists := v[step.Name]; exists {
+					if len(remaining) == 0 {
+						// 这是最终步骤，返回字段值
+						match := Match{
+							Value: value,
+							Path:  step.Name,
+						}
+						if path != "" {
+							match.Path = path + "." + step.Name
+						}
+						if rawBytes, err := json.Marshal(value); err == nil {
+							match.Raw = rawBytes
+						}
+						matches = append(matches, match)
+					} else {
+						// 继续处理剩余步骤
+						fieldBytes, err := json.Marshal(value)
+						if err == nil {
+							fieldCtx := &QueryContext{
+								scanner: scanner.NewScanner(fieldBytes),
+								data:    fieldBytes,
+							}
+							subMatches, err := e.executeSteps(fieldCtx, remaining, 0)
+							if err == nil {
+								for _, subMatch := range subMatches {
+									newPath := step.Name
+									if subMatch.Path != "" {
+										newPath = step.Name + "." + subMatch.Path
+									}
+									if path != "" {
+										newPath = path + "." + newPath
+									}
+									subMatch.Path = newPath
+									matches = append(matches, subMatch)
+								}
+							}
+						}
+					}
+				}
+
+				// 递归搜索所有子对象
+				for key, child := range v {
+					childPath := key
+					if path != "" {
+						childPath = path + "." + key
+					}
+					searchForField(child, childPath, depth+1)
+				}
+			case []interface{}:
+				// 递归搜索数组中的每个元素
+				for i, child := range v {
+					childPath := fmt.Sprintf("[%d]", i)
+					if path != "" {
+						childPath = path + "." + fmt.Sprintf("[%d]", i)
+					}
+					searchForField(child, childPath, depth+1)
+				}
+			}
+		}
+
+		searchForField(current, "", 0)
+	} else {
+		// 没有具体名字的递归查询 - 避免这种情况下的复杂递归
+		return matches, nil
 	}
-
-	// TODO: Implement true recursive descent through JSON structure
-	// This would require parsing the entire JSON structure to find all matching paths
 
 	return matches, nil
 }
@@ -339,16 +420,44 @@ func (e *Engine) executeArrayStep(ctx *QueryContext, step parser.Step, remaining
 	for _, predicate := range step.Predicates {
 		switch predicate.Type {
 		case parser.PredicateIndex:
-			// Simple array index access like [0]
-			if predicate.Index >= 0 && predicate.Index < len(array) {
-				match := Match{
-					Value: array[predicate.Index],
-					Path:  fmt.Sprintf("[%d]", predicate.Index),
+			// Simple array index access like [0] or [-1]
+			index := predicate.Index
+			// Handle negative indices
+			if index < 0 {
+				index = len(array) + index
+			}
+
+			if index >= 0 && index < len(array) {
+				if len(remaining) == 0 {
+					// This is the final step, return the array element
+					match := Match{
+						Value: array[index],
+						Path:  fmt.Sprintf("[%d]", predicate.Index),
+					}
+					if rawBytes, err := json.Marshal(array[index]); err == nil {
+						match.Raw = rawBytes
+					}
+					matches = append(matches, match)
+				} else {
+					// Continue with remaining steps on the array element
+					elementBytes, err := json.Marshal(array[index])
+					if err != nil {
+						continue
+					}
+
+					elementCtx := &QueryContext{
+						scanner: scanner.NewScanner(elementBytes),
+						data:    elementBytes,
+					}
+
+					subMatches, err := e.executeSteps(elementCtx, remaining, 0)
+					if err == nil {
+						for _, subMatch := range subMatches {
+							subMatch.Path = fmt.Sprintf("[%d].%s", predicate.Index, subMatch.Path)
+							matches = append(matches, subMatch)
+						}
+					}
 				}
-				if rawBytes, err := json.Marshal(array[predicate.Index]); err == nil {
-					match.Raw = rawBytes
-				}
-				matches = append(matches, match)
 			}
 
 		case parser.PredicateSlice:
@@ -373,36 +482,83 @@ func (e *Engine) executeArrayStep(ctx *QueryContext, step parser.Step, remaining
 			}
 
 			if start < end {
-				sliceArray := array[start:end]
-				match := Match{
-					Value: sliceArray,
-					Path:  fmt.Sprintf("[%d:%d]", predicate.Start, predicate.End),
+				if len(remaining) == 0 {
+					// This is the final step, return the slice
+					sliceArray := array[start:end]
+					match := Match{
+						Value: sliceArray,
+						Path:  fmt.Sprintf("[%d:%d]", predicate.Start, predicate.End),
+					}
+					if rawBytes, err := json.Marshal(sliceArray); err == nil {
+						match.Raw = rawBytes
+					}
+					matches = append(matches, match)
+				} else {
+					// Continue with remaining steps on each element in the slice
+					for i := start; i < end; i++ {
+						elementBytes, err := json.Marshal(array[i])
+						if err != nil {
+							continue
+						}
+
+						elementCtx := &QueryContext{
+							scanner: scanner.NewScanner(elementBytes),
+							data:    elementBytes,
+						}
+
+						subMatches, err := e.executeSteps(elementCtx, remaining, 0)
+						if err == nil {
+							for _, subMatch := range subMatches {
+								subMatch.Path = fmt.Sprintf("[%d].%s", i, subMatch.Path)
+								matches = append(matches, subMatch)
+							}
+						}
+					}
 				}
-				if rawBytes, err := json.Marshal(sliceArray); err == nil {
-					match.Raw = rawBytes
-				}
-				matches = append(matches, match)
 			}
 
 		case parser.PredicateExpression:
 			// Filter expression like [?(@.price < 20)]
 			rootData := e.getRootData(ctx)
 
-			filteredItems, err := ApplyFilter(array, predicate, rootData)
+			filteredMap, err := ApplyFilter(array, predicate, rootData)
 			if err != nil {
 				return nil, fmt.Errorf("error applying filter: %w", err)
 			}
 
-			// Create matches for filtered items
-			for _, item := range filteredItems {
-				match := Match{
-					Value: item,
-					Path:  "[]", // Filtered items don't have meaningful path
+			if len(remaining) == 0 {
+				// This is the final step, return filtered elements
+				for idx, item := range filteredMap {
+					match := Match{
+						Value: item,
+						Path:  fmt.Sprintf("[%d]", idx),
+					}
+					if rawBytes, err := json.Marshal(item); err == nil {
+						match.Raw = rawBytes
+					}
+					matches = append(matches, match)
 				}
-				if rawBytes, err := json.Marshal(item); err == nil {
-					match.Raw = rawBytes
+			} else {
+				// Continue with remaining steps on each filtered element
+				for idx, item := range filteredMap {
+					elementBytes, err := json.Marshal(item)
+					if err != nil {
+						continue
+					}
+
+					elementCtx := &QueryContext{
+						scanner: scanner.NewScanner(elementBytes),
+						data:    elementBytes,
+					}
+
+					subMatches, err := e.executeSteps(elementCtx, remaining, 0)
+					if err == nil {
+						for _, subMatch := range subMatches {
+							subMatch.Path = fmt.Sprintf("[%d].%s", idx, subMatch.Path)
+							matches = append(matches, subMatch)
+						}
+					}
 				}
-				matches = append(matches, match)
 			}
 		}
 	}
@@ -728,34 +884,28 @@ func (e *Engine) executeArrayStepOnMaterialized(ctx *MaterializedContext, step p
 			// Filter expression like [?(@.price < 20)]
 			rootData := ctx.data
 
-			filteredItems, err := ApplyFilter(array, predicate, rootData)
+			filteredMap, err := ApplyFilter(array, predicate, rootData)
 			if err != nil {
 				return nil, fmt.Errorf("error applying filter: %w", err)
-			} // Create matches for filtered items with original indices
-			for originalIndex, item := range array {
-				// Check if this item is in the filtered results
-				for _, filteredItem := range filteredItems {
-					if fmt.Sprintf("%v", item) == fmt.Sprintf("%v", filteredItem) {
-						if len(remaining) == 0 {
-							match := Match{
-								Value: item,
-								Path:  fmt.Sprintf("[%d]", originalIndex),
-							}
-							if rawBytes, err := json.Marshal(item); err == nil {
-								match.Raw = rawBytes
-							}
-							matches = append(matches, match)
-						} else {
-							subMatches, err := e.executeStepsOnMaterialized(ctx, remaining, item)
-							if err != nil {
-								return nil, err
-							}
-							for _, match := range subMatches {
-								match.Path = fmt.Sprintf("[%d]", originalIndex) + "." + match.Path
-								matches = append(matches, match)
-							}
-						}
-						break
+			}
+			for originalIndex, item := range filteredMap {
+				if len(remaining) == 0 {
+					match := Match{
+						Value: item,
+						Path:  fmt.Sprintf("[%d]", originalIndex),
+					}
+					if rawBytes, err := json.Marshal(item); err == nil {
+						match.Raw = rawBytes
+					}
+					matches = append(matches, match)
+				} else {
+					subMatches, err := e.executeStepsOnMaterialized(ctx, remaining, item)
+					if err != nil {
+						return nil, err
+					}
+					for _, match := range subMatches {
+						match.Path = fmt.Sprintf("[%d]", originalIndex) + "." + match.Path
+						matches = append(matches, match)
 					}
 				}
 			}
@@ -1065,24 +1215,26 @@ func collectRecursiveMatches(data interface{}, targetPath string, results *[]int
 	}
 }
 
-// ApplyFilter applies a filter expression to an array of items
-func ApplyFilter(items []interface{}, predicate parser.Predicate, rootData interface{}) ([]interface{}, error) {
+// ApplyFilter applies a filter expression to an array of items and returns a map of original indices to matched items
+func ApplyFilter(items []interface{}, predicate parser.Predicate, rootData interface{}) (map[int]interface{}, error) {
 	if predicate.Type != parser.PredicateExpression {
-		return items, nil // Non-expression predicates not handled here
+		results := make(map[int]interface{}, len(items))
+		for i, item := range items {
+			results[i] = item
+		}
+		return results, nil
 	}
 
-	var results []interface{}
-
-	for _, item := range items {
+	results := make(map[int]interface{})
+	for i, item := range items {
 		match, err := evaluateFilterExpression(predicate.Expression, item, rootData)
 		if err != nil {
 			return nil, err
 		}
 		if match {
-			results = append(results, item)
+			results[i] = item
 		}
 	}
-
 	return results, nil
 }
 

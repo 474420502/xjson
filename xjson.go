@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/474420502/xjson/internal/engine"
 	"github.com/474420502/xjson/internal/modifier"
@@ -94,6 +95,7 @@ type IResult interface {
 
 // Document represents a JSON document with lazy parsing and materialize-on-write capabilities
 type Document struct {
+	mu sync.RWMutex
 	// Raw JSON bytes (nil after materialization)
 	raw []byte
 
@@ -134,83 +136,565 @@ func ParseString(data string) (*Document, error) {
 }
 
 // Query executes an XPath-like query on the document
-func (d *Document) Query(xpath string) IResult {
-	if d.err != nil {
-		return &Result{err: d.err}
+func (doc *Document) Query(path string) *Result {
+	doc.mu.RLock()
+	defer doc.mu.RUnlock()
+
+	if doc.err != nil {
+		return &Result{err: doc.err}
 	}
 
-	if !d.isValid {
-		return &Result{err: ErrInvalidJSON}
+	// Check for invalid syntax first, always
+	if doc.isInvalidSyntax(path) {
+		return &Result{matches: []interface{}{}}
 	}
 
-	// For now, support simple dot-notation paths
-	// Full XPath parsing will be implemented later
-	if isSimplePath(xpath) {
-		return d.querySimplePath(xpath)
-	}
+	// For read operations, use lazy parsing when possible
+	if !doc.isMaterialized {
 
-	// Try to parse as XPath query
-	p := parser.NewParser(xpath)
-	query, err := p.Parse()
-	if err != nil {
-		return &Result{err: fmt.Errorf("invalid query syntax: %w", err)}
-	}
-
-	var matches []engine.Match
-	var queryErr error
-
-	if d.isMaterialized {
-		// Query on materialized data
-		eng := engine.NewEngine()
-		matches, queryErr = eng.ExecuteOnMaterialized(d.materialized, query)
-	} else {
-		// Query on raw bytes
-		eng := engine.NewEngine()
-		matches, queryErr = eng.ExecuteOnRaw(d.raw, query)
-	}
-
-	if queryErr != nil {
-		return &Result{err: queryErr}
-	}
-
-	return &Result{
-		doc:     d,
-		matches: convertMatches(matches),
-	}
-}
-
-// querySimplePath handles simple dot-notation paths like "store.book[0].title"
-func (d *Document) querySimplePath(path string) IResult {
-	if d.isMaterialized {
-		// Query on materialized data
-		if value, exists := engine.GetValueBySimplePath(d.materialized, path); exists {
-			return &Result{
-				doc:     d,
-				matches: []interface{}{value},
+		// Try simple direct access first without materializing
+		if !strings.Contains(path, "[") && !strings.Contains(path, "..") {
+			// Simple field access - try direct JSON parsing
+			var data map[string]interface{}
+			if err := json.Unmarshal(doc.raw, &data); err == nil {
+				if val, exists := data[path]; exists {
+					return &Result{matches: []interface{}{val}}
+				}
+				// Try dotted path
+				if strings.Contains(path, ".") {
+					current := interface{}(data)
+					parts := strings.Split(path, ".")
+					found := true
+					for _, part := range parts {
+						if part == "" {
+							continue
+						}
+						if obj, ok := current.(map[string]interface{}); ok {
+							if val, exists := obj[part]; exists {
+								current = val
+							} else {
+								found = false
+								break
+							}
+						} else {
+							found = false
+							break
+						}
+					}
+					if found {
+						return &Result{matches: []interface{}{current}}
+					}
+				}
+				return &Result{matches: []interface{}{}}
 			}
 		}
-		return &Result{doc: d, matches: []interface{}{}}
-	}
 
-	// Query on raw bytes using lazy parsing
-	// This should NOT trigger materialization
-	if value, exists := engine.GetValueBySimplePathFromRaw(d.raw, path); exists {
-		return &Result{
-			doc:     d,
-			matches: []interface{}{value},
+		// For complex queries, we need to materialize
+		if err := doc.materialize(); err != nil {
+			return &Result{err: err}
 		}
 	}
 
-	return &Result{doc: d, matches: []interface{}{}}
+	// We need to check if the key exists, not just if the value is non-nil
+	exists, result := doc.getValueWithExists(doc.materialized, path)
+	if !exists {
+		return &Result{matches: []interface{}{}}
+	}
+
+	return &Result{matches: []interface{}{result}}
 }
 
-// isSimplePath checks if the path is a simple dot notation
-func isSimplePath(path string) bool {
-	// Simple heuristic: if it doesn't contain XPath special characters, treat as simple path
-	return !strings.Contains(path, "//") &&
-		!strings.Contains(path, "[?") &&
-		!strings.Contains(path, "@") &&
-		!strings.Contains(path, "*")
+// getValueWithExists checks if a path exists and returns the value
+func (doc *Document) getValueWithExists(data interface{}, path string) (bool, interface{}) {
+	if path == "" {
+		return true, data
+	}
+
+	// Handle direct key access first (including keys with dots)
+	if obj, ok := data.(map[string]interface{}); ok {
+		if val, exists := obj[path]; exists {
+			return true, val
+		}
+	}
+
+	// Handle simple field access (no dots, no brackets)
+	if !strings.Contains(path, ".") && !strings.Contains(path, "[") {
+		return false, nil // Already checked above
+	}
+
+	// Handle array access at root level like [0] or [1:3]
+	if strings.HasPrefix(path, "[") && strings.HasSuffix(path, "]") {
+		indexStr := path[1 : len(path)-1]
+
+		// Handle slice syntax [start:end]
+		if strings.Contains(indexStr, ":") {
+			parts := strings.Split(indexStr, ":")
+			if len(parts) == 2 {
+				start, err1 := strconv.Atoi(parts[0])
+				end, err2 := strconv.Atoi(parts[1])
+				if err1 == nil && err2 == nil {
+					if arr, ok := data.([]interface{}); ok {
+						// Handle negative indices for slice
+						if start < 0 {
+							start = len(arr) + start
+						}
+						if end < 0 {
+							end = len(arr) + end
+						}
+						// Clamp to array bounds
+						if start < 0 {
+							start = 0
+						}
+						if end > len(arr) {
+							end = len(arr)
+						}
+						if start <= end && start < len(arr) {
+							slice := arr[start:end]
+							return true, slice
+						}
+					}
+				}
+			}
+			return false, nil
+		}
+
+		// Handle negative indices
+		if strings.HasPrefix(indexStr, "-") {
+			if index, err := strconv.Atoi(indexStr); err == nil {
+				if arr, ok := data.([]interface{}); ok {
+					if index < 0 {
+						index = len(arr) + index
+					}
+					if index >= 0 && index < len(arr) {
+						return true, arr[index]
+					}
+				}
+			}
+			return false, nil
+		}
+
+		// Handle positive indices
+		if index, err := strconv.Atoi(indexStr); err == nil {
+			if arr, ok := data.([]interface{}); ok {
+				if index >= 0 && index < len(arr) {
+					return true, arr[index]
+				}
+			}
+		}
+		return false, nil
+	}
+
+	// Handle recursive queries (..)
+	if strings.Contains(path, "..") {
+		return doc.handleRecursiveQuery(data, path)
+	}
+
+	// Handle dotted paths by splitting on dots
+	parts := strings.Split(path, ".")
+	current := data
+
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		// Handle array access like [0] or [-1]
+		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+			indexStr := part[1 : len(part)-1]
+
+			var index int
+			var err error
+
+			// Handle negative indices
+			if strings.HasPrefix(indexStr, "-") {
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					return false, nil
+				}
+				if arr, ok := current.([]interface{}); ok {
+					if index < 0 {
+						index = len(arr) + index
+					}
+					if index >= 0 && index < len(arr) {
+						current = arr[index]
+						continue
+					}
+				}
+				return false, nil
+			} else {
+				// Handle positive indices
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					return false, nil
+				}
+				if arr, ok := current.([]interface{}); ok {
+					if index >= 0 && index < len(arr) {
+						current = arr[index]
+						continue
+					}
+				}
+				return false, nil
+			}
+		}
+
+		// Handle combined field and array access like "book[0]" or "book[1:3]" or "products[?(@.field == value)]"
+		if strings.Contains(part, "[") {
+			// Split field and array access
+			bracketIndex := strings.Index(part, "[")
+			fieldName := part[:bracketIndex]
+			arrayPart := part[bracketIndex:]
+
+			// First access the field
+			if obj, ok := current.(map[string]interface{}); ok {
+				if val, exists := obj[fieldName]; exists {
+					current = val
+				} else {
+					return false, nil
+				}
+			} else {
+				return false, nil
+			}
+
+			// Then handle the array access or filter
+			if strings.HasPrefix(arrayPart, "[") && strings.HasSuffix(arrayPart, "]") {
+				indexStr := arrayPart[1 : len(arrayPart)-1]
+
+				// Handle filter expressions like [?(@.field == value)]
+				if strings.HasPrefix(indexStr, "?(") && strings.HasSuffix(indexStr, ")") {
+					if arr, ok := current.([]interface{}); ok {
+						filtered := doc.applyFilter(arr, indexStr)
+						current = filtered
+						continue
+					}
+					return false, nil
+				}
+
+				// Handle slice syntax [start:end]
+				if strings.Contains(indexStr, ":") {
+					parts := strings.Split(indexStr, ":")
+					if len(parts) == 2 {
+						start, err1 := strconv.Atoi(parts[0])
+						end, err2 := strconv.Atoi(parts[1])
+						if err1 == nil && err2 == nil {
+							if arr, ok := current.([]interface{}); ok {
+								// Handle negative indices for slice
+								if start < 0 {
+									start = len(arr) + start
+								}
+								if end < 0 {
+									end = len(arr) + end
+								}
+								// Clamp to array bounds
+								if start < 0 {
+									start = 0
+								}
+								if end > len(arr) {
+									end = len(arr)
+								}
+								if start <= end && start < len(arr) {
+									slice := arr[start:end]
+									current = slice
+									continue
+								}
+							}
+						}
+					}
+					return false, nil
+				}
+
+				var index int
+				var err error
+
+				// Handle negative indices
+				if strings.HasPrefix(indexStr, "-") {
+					index, err = strconv.Atoi(indexStr)
+					if err != nil {
+						return false, nil
+					}
+					if arr, ok := current.([]interface{}); ok {
+						if index < 0 {
+							index = len(arr) + index
+						}
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+					return false, nil
+				} else {
+					// Handle positive indices
+					index, err = strconv.Atoi(indexStr)
+					if err != nil {
+						return false, nil
+					}
+					if arr, ok := current.([]interface{}); ok {
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+					return false, nil
+				}
+			}
+			continue
+		}
+
+		// Handle object field access
+		if obj, ok := current.(map[string]interface{}); ok {
+			if val, exists := obj[part]; exists {
+				current = val
+			} else {
+				return false, nil
+			}
+		} else {
+			return false, nil
+		}
+	}
+
+	return true, current
+}
+
+// handleRecursiveQuery handles queries with ".." syntax for recursive search
+func (doc *Document) handleRecursiveQuery(data interface{}, path string) (bool, interface{}) {
+	// Parse the recursive query
+	// For example: "store..price" means find "price" in store and all its descendants
+	// or "..price" means find all "price" fields at any depth
+
+	if strings.HasPrefix(path, "..") {
+		// Simple recursive query from root
+		fieldName := strings.TrimPrefix(path, "..")
+		results := doc.findAllFields(data, fieldName, 0)
+		if len(results) > 0 {
+			// If we found multiple results, return them as an array
+			if len(results) == 1 {
+				return true, results[0]
+			}
+			return true, results
+		}
+		return false, nil
+	}
+
+	// Handle complex recursive queries like "store..price"
+	parts := strings.Split(path, "..")
+	if len(parts) == 2 {
+		prefixPath := parts[0]
+		fieldName := parts[1]
+
+		// First navigate to the prefix path
+		exists, prefixData := doc.getValueWithExists(data, prefixPath)
+		if !exists {
+			return false, nil
+		}
+
+		// Then do recursive search from that point
+		results := doc.findAllFields(prefixData, fieldName, 0)
+		if len(results) > 0 {
+			// If we found multiple results, return them as an array
+			if len(results) == 1 {
+				return true, results[0]
+			}
+			return true, results
+		}
+		return false, nil
+	}
+
+	return false, nil
+}
+
+// findAllFields recursively searches for all fields with the given name
+func (doc *Document) findAllFields(data interface{}, fieldName string, depth int) []interface{} {
+	var results []interface{}
+
+	// Prevent infinite recursion
+	if depth > 50 {
+		return results
+	}
+
+	switch v := data.(type) {
+	case map[string]interface{}:
+		// Check if current object has the target field
+		if value, exists := v[fieldName]; exists {
+			results = append(results, value)
+		}
+
+		// Recursively search all child objects
+		for _, child := range v {
+			subResults := doc.findAllFields(child, fieldName, depth+1)
+			results = append(results, subResults...)
+		}
+	case []interface{}:
+		// Recursively search array elements
+		for _, child := range v {
+			subResults := doc.findAllFields(child, fieldName, depth+1)
+			results = append(results, subResults...)
+		}
+	}
+
+	return results
+}
+
+// getValue extracts a value from materialized data using a simple path
+func (doc *Document) getValue(data interface{}, path string) interface{} {
+	if path == "" {
+		return data
+	}
+
+	// Handle direct key access first (including keys with dots)
+	if obj, ok := data.(map[string]interface{}); ok {
+		if val, exists := obj[path]; exists {
+			// 重要：即使值为nil，也要返回一个特殊标记表示"找到了"
+			// 我们需要区分"键不存在"和"键存在但值为null"
+			return val
+		}
+	}
+
+	// Handle simple field access (no dots, no brackets)
+	if !strings.Contains(path, ".") && !strings.Contains(path, "[") {
+		return nil // Already checked above
+	}
+
+	// Handle array access at root level like [0]
+	if strings.HasPrefix(path, "[") && strings.HasSuffix(path, "]") {
+		indexStr := path[1 : len(path)-1]
+
+		// Handle negative indices
+		if strings.HasPrefix(indexStr, "-") {
+			if index, err := strconv.Atoi(indexStr); err == nil {
+				if arr, ok := data.([]interface{}); ok {
+					if index < 0 {
+						index = len(arr) + index
+					}
+					if index >= 0 && index < len(arr) {
+						return arr[index]
+					}
+				}
+			}
+			return nil
+		}
+
+		// Handle positive indices
+		if index, err := strconv.Atoi(indexStr); err == nil {
+			if arr, ok := data.([]interface{}); ok {
+				if index >= 0 && index < len(arr) {
+					return arr[index]
+				}
+			}
+		}
+		return nil
+	}
+
+	// Handle dotted paths by splitting on dots
+	parts := strings.Split(path, ".")
+	current := data
+
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		// Handle array access like [0] or [-1]
+		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+			indexStr := part[1 : len(part)-1]
+
+			var index int
+			var err error
+
+			// Handle negative indices
+			if strings.HasPrefix(indexStr, "-") {
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					return nil
+				}
+				if arr, ok := current.([]interface{}); ok {
+					if index < 0 {
+						index = len(arr) + index
+					}
+					if index >= 0 && index < len(arr) {
+						current = arr[index]
+						continue
+					}
+				}
+				return nil
+			} else {
+				// Handle positive indices
+				index, err = strconv.Atoi(indexStr)
+				if err != nil {
+					return nil
+				}
+				if arr, ok := current.([]interface{}); ok {
+					if index >= 0 && index < len(arr) {
+						current = arr[index]
+						continue
+					}
+				}
+				return nil
+			}
+		}
+
+		// Handle combined field and array access like "book[0]"
+		if strings.Contains(part, "[") {
+			// Split field and array access
+			bracketIndex := strings.Index(part, "[")
+			fieldName := part[:bracketIndex]
+			arrayPart := part[bracketIndex:]
+
+			// First access the field
+			if obj, ok := current.(map[string]interface{}); ok {
+				current = obj[fieldName]
+			} else {
+				return nil
+			}
+
+			// Then handle the array access
+			if strings.HasPrefix(arrayPart, "[") && strings.HasSuffix(arrayPart, "]") {
+				indexStr := arrayPart[1 : len(arrayPart)-1]
+
+				var index int
+				var err error
+
+				// Handle negative indices
+				if strings.HasPrefix(indexStr, "-") {
+					index, err = strconv.Atoi(indexStr)
+					if err != nil {
+						return nil
+					}
+					if arr, ok := current.([]interface{}); ok {
+						if index < 0 {
+							index = len(arr) + index
+						}
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+					return nil
+				} else {
+					// Handle positive indices
+					index, err = strconv.Atoi(indexStr)
+					if err != nil {
+						return nil
+					}
+					if arr, ok := current.([]interface{}); ok {
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+					return nil
+				}
+			}
+			continue
+		}
+
+		// Handle object field access
+		if obj, ok := current.(map[string]interface{}); ok {
+			current = obj[part]
+		} else {
+			return nil
+		}
+	}
+
+	return current
 }
 
 // convertMatches converts engine matches to interface{} slice
@@ -224,6 +708,8 @@ func convertMatches(matches []engine.Match) []interface{} {
 
 // Set modifies a value at the specified path, triggering materialization if needed
 func (d *Document) Set(path string, value interface{}) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.err != nil {
 		return d.err
 	}
@@ -246,6 +732,8 @@ func (d *Document) Set(path string, value interface{}) error {
 
 // Delete removes a value at the specified path, triggering materialization if needed
 func (d *Document) Delete(path string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.err != nil {
 		return d.err
 	}
@@ -537,16 +1025,19 @@ func (r *Result) Get(path string) IResult {
 
 	// Get sub-path from the first match
 	firstMatch := r.matches[0]
-	if value, exists := engine.GetValueBySimplePath(firstMatch, path); exists {
-		return &Result{
-			doc:     r.doc,
-			matches: []interface{}{value},
-		}
+	// 统一用 parser 解析 path
+	p := parser.NewParser(path)
+	query, err := p.Parse()
+	if err != nil {
+		return &Result{err: fmt.Errorf("invalid sub-path syntax: %w", err)}
 	}
-
+	matches, queryErr := engine.NewEngine().ExecuteOnMaterialized(firstMatch, query)
+	if queryErr != nil {
+		return &Result{err: queryErr}
+	}
 	return &Result{
 		doc:     r.doc,
-		matches: []interface{}{},
+		matches: convertMatches(matches),
 	}
 }
 
@@ -608,6 +1099,8 @@ func (r *Result) Count() int {
 		if arr, ok := r.matches[0].([]interface{}); ok {
 			return len(arr)
 		}
+		// For any other single match (including null), count is 1
+		return 1
 	}
 
 	// Otherwise return the number of matches
@@ -731,11 +1224,22 @@ func (r *Result) IsNull() bool {
 }
 
 func (r *Result) IsArray() bool {
-	if r.err != nil || len(r.matches) == 0 {
+	if r.err != nil {
 		return false
 	}
-	_, ok := r.matches[0].([]interface{})
-	return ok
+
+	// If we have multiple matches, this is an array result
+	if len(r.matches) > 1 {
+		return true
+	}
+
+	// If we have exactly one match, check if it's an array type
+	if len(r.matches) == 1 {
+		_, ok := r.matches[0].([]interface{})
+		return ok
+	}
+
+	return false
 }
 
 func (r *Result) IsObject() bool {
@@ -770,7 +1274,12 @@ func (r *Result) Raw() interface{} {
 	if r.err != nil || len(r.matches) == 0 {
 		return nil
 	}
-	return r.matches[0]
+	// For null values, return nil (which is correct Go representation)
+	value := r.matches[0]
+	if value == nil {
+		return nil
+	}
+	return value
 }
 
 func (r *Result) Bytes() ([]byte, error) {
@@ -782,4 +1291,195 @@ func (r *Result) Bytes() ([]byte, error) {
 	}
 
 	return json.Marshal(r.matches[0])
+}
+
+// isInvalidSyntax checks for basic syntax errors in query paths
+func (doc *Document) isInvalidSyntax(path string) bool {
+	// Check for incomplete filter expressions like "a[?("
+	if strings.Contains(path, "[?(") && !strings.Contains(path, ")]") {
+		return true
+	}
+
+	// Check for unmatched brackets
+	openBrackets := strings.Count(path, "[")
+	closeBrackets := strings.Count(path, "]")
+	if openBrackets != closeBrackets {
+		return true
+	}
+
+	// Check for invalid slice syntax like [1:2:3]
+	if strings.Contains(path, ":") {
+		// Find bracket contents
+		start := strings.Index(path, "[")
+		end := strings.LastIndex(path, "]")
+		if start != -1 && end != -1 && start < end {
+			content := path[start+1 : end]
+			if strings.Count(content, ":") > 1 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// applyFilter applies a filter expression to an array
+func (doc *Document) applyFilter(arr []interface{}, filterExpr string) []interface{} {
+	// Remove the leading "?(" and trailing ")"
+	expr := strings.TrimPrefix(filterExpr, "?(")
+	expr = strings.TrimSuffix(expr, ")")
+
+	var filtered []interface{}
+
+	for _, item := range arr {
+		if doc.evaluateFilterExpression(item, expr) {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return filtered
+}
+
+// evaluateFilterExpression evaluates a filter expression against an item
+func (doc *Document) evaluateFilterExpression(item interface{}, expr string) bool {
+	// Simple expression parser for basic filters
+	// Supports: @.field == value, @.field < value, @.field > value, @.field == true/false
+
+	obj, ok := item.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	// Handle equality expressions
+	if strings.Contains(expr, " == ") {
+		parts := strings.Split(expr, " == ")
+		if len(parts) != 2 {
+			return false
+		}
+
+		fieldPath := strings.TrimSpace(parts[0])
+		expectedValue := strings.TrimSpace(parts[1])
+
+		// Remove @ prefix and get field value
+		if strings.HasPrefix(fieldPath, "@.") {
+			fieldName := fieldPath[2:]
+			actualValue := obj[fieldName]
+
+			// Handle different value types
+			return doc.compareValues(actualValue, expectedValue, "==")
+		}
+	}
+
+	// Handle less than expressions
+	if strings.Contains(expr, " < ") {
+		parts := strings.Split(expr, " < ")
+		if len(parts) != 2 {
+			return false
+		}
+
+		fieldPath := strings.TrimSpace(parts[0])
+		expectedValue := strings.TrimSpace(parts[1])
+
+		if strings.HasPrefix(fieldPath, "@.") {
+			fieldName := fieldPath[2:]
+			actualValue := obj[fieldName]
+
+			return doc.compareValues(actualValue, expectedValue, "<")
+		}
+	}
+
+	// Handle greater than expressions
+	if strings.Contains(expr, " > ") {
+		parts := strings.Split(expr, " > ")
+		if len(parts) != 2 {
+			return false
+		}
+
+		fieldPath := strings.TrimSpace(parts[0])
+		expectedValue := strings.TrimSpace(parts[1])
+
+		if strings.HasPrefix(fieldPath, "@.") {
+			fieldName := fieldPath[2:]
+			actualValue := obj[fieldName]
+
+			return doc.compareValues(actualValue, expectedValue, ">")
+		}
+	}
+
+	return false
+}
+
+// compareValues compares two values based on the operator
+func (doc *Document) compareValues(actual interface{}, expected string, operator string) bool {
+	switch operator {
+	case "==":
+		// Handle boolean comparison
+		if expected == "true" || expected == "false" {
+			expectedBool := expected == "true"
+			switch v := actual.(type) {
+			case bool:
+				return v == expectedBool
+			case int:
+				return (v != 0) == expectedBool
+			case float64:
+				return (v != 0) == expectedBool
+			case string:
+				// Handle string representations of booleans
+				return (v == "true") == expectedBool
+			default:
+				return false
+			}
+		}
+
+		// Handle string comparison (remove quotes)
+		if strings.HasPrefix(expected, "'") && strings.HasSuffix(expected, "'") {
+			expectedStr := strings.Trim(expected, "'")
+			if actualStr, ok := actual.(string); ok {
+				return actualStr == expectedStr
+			}
+		}
+
+		// Also handle string comparison without quotes for literal matches
+		if actualStr, ok := actual.(string); ok {
+			return actualStr == expected
+		}
+
+		// Handle numeric comparison
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v == expectedFloat
+			case int:
+				return float64(v) == expectedFloat
+			default:
+				return false
+			}
+		}
+
+	case "<":
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v < expectedFloat
+			case int:
+				return float64(v) < expectedFloat
+			default:
+				return false
+			}
+		}
+
+	case ">":
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v > expectedFloat
+			case int:
+				return float64(v) > expectedFloat
+			default:
+				return false
+			}
+		}
+	}
+
+	return false
 }

@@ -8,6 +8,28 @@ import (
 	"strconv"
 )
 
+// SyntaxProfile 定义了查询语言的语法符号
+type SyntaxProfile struct {
+	ChildSeparator      byte   // e.g., '/' or '.'
+	DescendantSeparator string // e.g., "//" or ".."
+	Wildcard            byte   // e.g., '*'
+	// 可扩展更多符号
+}
+
+// DefaultXPathSyntax 提供了一个默认的类XPath语法配置
+var DefaultXPathSyntax = SyntaxProfile{
+	ChildSeparator:      '/',
+	DescendantSeparator: "//",
+	Wildcard:            '*',
+}
+
+// DotNotationSyntax 提供了一个基于点符号的备用语法
+var DotNotationSyntax = SyntaxProfile{
+	ChildSeparator:      '.',
+	DescendantSeparator: "..",
+	Wildcard:            '*',
+}
+
 // TokenType represents the type of a token in the query
 type TokenType int
 
