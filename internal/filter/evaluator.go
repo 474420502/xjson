@@ -186,6 +186,28 @@ func (fe *FilterEvaluator) evaluateFunctionExpression(expr parser.Expression, ct
 
 // valuesEqual compares two values for equality
 func (fe *FilterEvaluator) valuesEqual(a, b interface{}) bool {
+	// 宽松等值比较：数值、布尔、nil、字符串等
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// 数值比较
+	if fe.isNumber(a) && fe.isNumber(b) {
+		af, _ := fe.toFloat64(a)
+		bf, _ := fe.toFloat64(b)
+		return af == bf
+	}
+	// 布尔与数值/布尔
+	if fe.isBool(a) || fe.isBool(b) {
+		return fe.toBool(a) == fe.toBool(b)
+	}
+	// 字符串
+	if fe.isString(a) && fe.isString(b) {
+		return a == b
+	}
+	// 其它类型 fallback
 	return reflect.DeepEqual(a, b)
 }
 
