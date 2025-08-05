@@ -264,8 +264,6 @@ func TestRecursiveQueries(t *testing.T) {
 	}
 
 	t.Run("recursive_name_search", func(t *testing.T) {
-		t.Skip("Recursive queries not yet implemented")
-
 		// 查找所有 name 字段（递归）
 		result := doc.Query("//name")
 		count := result.Count()
@@ -277,8 +275,6 @@ func TestRecursiveQueries(t *testing.T) {
 	})
 
 	t.Run("recursive_with_filter", func(t *testing.T) {
-		t.Skip("Recursive queries and filters not yet implemented")
-
 		// 递归查找所有薪水大于80000的员工
 		result := doc.Query("//employees[?(@.salary > 80000)]")
 		count := result.Count()

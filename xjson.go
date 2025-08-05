@@ -153,7 +153,7 @@ func (doc *Document) Query(path string) *Result {
 	if !doc.isMaterialized {
 
 		// Try simple direct access first without materializing
-		if !strings.Contains(path, "[") && !strings.Contains(path, "..") {
+		if !strings.Contains(path, "[") && !strings.Contains(path, "..") && !strings.Contains(path, "//") {
 			// Simple field access - try direct JSON parsing
 			var data map[string]interface{}
 			if err := json.Unmarshal(doc.raw, &data); err == nil {
@@ -215,6 +215,11 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 		if val, exists := obj[path]; exists {
 			return true, val
 		}
+	}
+
+	// Handle recursive queries (..) or (//) early before other path processing
+	if strings.Contains(path, "..") || strings.Contains(path, "//") {
+		return doc.handleRecursiveQuery(data, path)
 	}
 
 	// Handle simple field access (no dots, no brackets)
@@ -284,13 +289,8 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 		return false, nil
 	}
 
-	// Handle recursive queries (..)
-	if strings.Contains(path, "..") {
-		return doc.handleRecursiveQuery(data, path)
-	}
-
-	// Handle dotted paths by splitting on dots
-	parts := strings.Split(path, ".")
+	// Handle dotted paths by splitting on dots (but not inside brackets)
+	parts := doc.splitPath(path)
 	current := data
 
 	for _, part := range parts {
@@ -454,14 +454,61 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 	return true, current
 }
 
-// handleRecursiveQuery handles queries with ".." syntax for recursive search
+// handleRecursiveQuery handles queries with ".." or "//" syntax for recursive search
 func (doc *Document) handleRecursiveQuery(data interface{}, path string) (bool, interface{}) {
 	// Parse the recursive query
-	// For example: "store..price" means find "price" in store and all its descendants
-	// or "..price" means find all "price" fields at any depth
+	// For example: "store..price" or "store//price" means find "price" in store and all its descendants
+	// or "..price" or "//price" means find all "price" fields at any depth
+
+	if strings.HasPrefix(path, "//") {
+		// Simple recursive query from root (//fieldName or //fieldName[filter])
+		fieldPart := strings.TrimPrefix(path, "//")
+
+		// Check if there's a filter expression
+		if strings.Contains(fieldPart, "[") {
+			// Parse field name and filter
+			bracketIndex := strings.Index(fieldPart, "[")
+			fieldName := fieldPart[:bracketIndex]
+			filterPart := fieldPart[bracketIndex:]
+
+			// Find all instances of the field recursively
+			fieldResults := doc.findAllFields(data, fieldName, 0)
+			var filteredResults []interface{}
+
+			// Apply filter to each found array
+			for _, fieldResult := range fieldResults {
+				if arr, ok := fieldResult.([]interface{}); ok {
+					// Apply the filter expression to this array
+					if strings.HasPrefix(filterPart, "[") && strings.HasSuffix(filterPart, "]") {
+						indexStr := filterPart[1 : len(filterPart)-1]
+						if strings.HasPrefix(indexStr, "?(") && strings.HasSuffix(indexStr, ")") {
+							filtered := doc.applyFilter(arr, indexStr)
+							filteredResults = append(filteredResults, filtered...)
+						}
+					}
+				}
+			}
+
+			if len(filteredResults) > 0 {
+				return true, filteredResults
+			}
+			return false, nil
+		} else {
+			// Simple field name without filter
+			results := doc.findAllFields(data, fieldPart, 0)
+			if len(results) > 0 {
+				// If we found multiple results, return them as an array
+				if len(results) == 1 {
+					return true, results[0]
+				}
+				return true, results
+			}
+			return false, nil
+		}
+	}
 
 	if strings.HasPrefix(path, "..") {
-		// Simple recursive query from root
+		// Simple recursive query from root (..fieldName)
 		fieldName := strings.TrimPrefix(path, "..")
 		results := doc.findAllFields(data, fieldName, 0)
 		if len(results) > 0 {
@@ -474,12 +521,26 @@ func (doc *Document) handleRecursiveQuery(data interface{}, path string) (bool, 
 		return false, nil
 	}
 
-	// Handle complex recursive queries like "store..price"
-	parts := strings.Split(path, "..")
-	if len(parts) == 2 {
-		prefixPath := parts[0]
-		fieldName := parts[1]
+	// Handle complex recursive queries like "store//price" or "store..price"
+	var parts []string
+	var fieldName string
+	var prefixPath string
 
+	if strings.Contains(path, "//") {
+		parts = strings.Split(path, "//")
+		if len(parts) == 2 {
+			prefixPath = parts[0]
+			fieldName = parts[1]
+		}
+	} else if strings.Contains(path, "..") {
+		parts = strings.Split(path, "..")
+		if len(parts) == 2 {
+			prefixPath = parts[0]
+			fieldName = parts[1]
+		}
+	}
+
+	if prefixPath != "" && fieldName != "" {
 		// First navigate to the prefix path
 		exists, prefixData := doc.getValueWithExists(data, prefixPath)
 		if !exists {
@@ -1338,82 +1399,113 @@ func (doc *Document) applyFilter(arr []interface{}, filterExpr string) []interfa
 	}
 
 	return filtered
-}
-
-// evaluateFilterExpression evaluates a filter expression against an item
+} // evaluateFilterExpression evaluates a filter expression against an item
 func (doc *Document) evaluateFilterExpression(item interface{}, expr string) bool {
-	// Simple expression parser for basic filters
-	// Supports: @.field == value, @.field < value, @.field > value, @.field == true/false
+	// Handle AND operator first (higher precedence)
+	if strings.Contains(expr, " && ") {
+		parts := strings.Split(expr, " && ")
+		for _, part := range parts {
+			if !doc.evaluateSimpleExpression(item, strings.TrimSpace(part)) {
+				return false // All parts must be true for AND
+			}
+		}
+		return true
+	}
 
-	obj, ok := item.(map[string]interface{})
-	if !ok {
+	// Handle OR operator
+	if strings.Contains(expr, " || ") {
+		parts := strings.Split(expr, " || ")
+		for _, part := range parts {
+			if doc.evaluateSimpleExpression(item, strings.TrimSpace(part)) {
+				return true // Any part can be true for OR
+			}
+		}
 		return false
 	}
 
-	// Handle equality expressions
-	if strings.Contains(expr, " == ") {
-		parts := strings.Split(expr, " == ")
-		if len(parts) != 2 {
-			return false
+	// Handle simple expression
+	return doc.evaluateSimpleExpression(item, expr)
+}
+
+// evaluateSimpleExpression evaluates a simple filter expression against an item
+func (doc *Document) evaluateSimpleExpression(item interface{}, expr string) bool {
+	// Trim spaces
+	expr = strings.TrimSpace(expr)
+
+	// Must start with @.field (or @.field.sub)
+	if !strings.HasPrefix(expr, "@.") {
+		return false
+	}
+
+	// Supported operators
+	operators := []string{"==", "!=", ">=", "<=", ">", "<"}
+	var op string
+	var idx int
+	for _, candidate := range operators {
+		if i := strings.Index(expr, candidate); i > 0 {
+			op = candidate
+			idx = i
+			break
 		}
+	}
+	if op == "" {
+		return false // no operator found
+	}
 
-		fieldPath := strings.TrimSpace(parts[0])
-		expectedValue := strings.TrimSpace(parts[1])
+	fieldPath := strings.TrimSpace(expr[:idx])
+	expectedValue := strings.TrimSpace(expr[idx+len(op):])
 
-		// Remove @ prefix and get field value
-		if strings.HasPrefix(fieldPath, "@.") {
-			fieldName := fieldPath[2:]
-			actualValue := obj[fieldName]
+	// Remove quotes from expectedValue if present
+	if (strings.HasPrefix(expectedValue, "'") && strings.HasSuffix(expectedValue, "'")) ||
+		(strings.HasPrefix(expectedValue, "\"") && strings.HasSuffix(expectedValue, "\"")) {
+		expectedValue = expectedValue[1 : len(expectedValue)-1]
+	}
 
-			// Handle different value types
-			return doc.compareValues(actualValue, expectedValue, "==")
+	// Support nested field access: @.a.b.c
+	fieldName := fieldPath[2:]
+	var actualValue interface{} = item
+	for _, part := range strings.Split(fieldName, ".") {
+		if m, ok := actualValue.(map[string]interface{}); ok {
+			actualValue = m[part]
+		} else {
+			actualValue = nil
+			break
 		}
 	}
 
-	// Handle less than expressions
-	if strings.Contains(expr, " < ") {
-		parts := strings.Split(expr, " < ")
-		if len(parts) != 2 {
-			return false
+	// If field doesn't exist, always false
+	if actualValue == nil {
+		if op == "==" && (expectedValue == "null" || expectedValue == "nil") {
+			return true
 		}
-
-		fieldPath := strings.TrimSpace(parts[0])
-		expectedValue := strings.TrimSpace(parts[1])
-
-		if strings.HasPrefix(fieldPath, "@.") {
-			fieldName := fieldPath[2:]
-			actualValue := obj[fieldName]
-
-			return doc.compareValues(actualValue, expectedValue, "<")
-		}
+		return false
 	}
 
-	// Handle greater than expressions
-	if strings.Contains(expr, " > ") {
-		parts := strings.Split(expr, " > ")
-		if len(parts) != 2 {
-			return false
-		}
-
-		fieldPath := strings.TrimSpace(parts[0])
-		expectedValue := strings.TrimSpace(parts[1])
-
-		if strings.HasPrefix(fieldPath, "@.") {
-			fieldName := fieldPath[2:]
-			actualValue := obj[fieldName]
-
-			return doc.compareValues(actualValue, expectedValue, ">")
-		}
-	}
-
-	return false
+	// Use compareValues for all logic
+	return doc.compareValues(actualValue, expectedValue, op)
 }
 
 // compareValues compares two values based on the operator
 func (doc *Document) compareValues(actual interface{}, expected string, operator string) bool {
+	// nil/null handling
+	isNil := func(v interface{}) bool {
+		return v == nil
+	}
+
 	switch operator {
 	case "==":
-		// Handle boolean comparison
+		// nil/null equality
+		if isNil(actual) && (expected == "null" || expected == "nil") {
+			return true
+		}
+		if (expected == "null" || expected == "nil") && !isNil(actual) {
+			return false
+		}
+		if isNil(actual) && expected != "null" && expected != "nil" {
+			return false
+		}
+
+		// Boolean comparison
 		if expected == "true" || expected == "false" {
 			expectedBool := expected == "true"
 			switch v := actual.(type) {
@@ -1424,37 +1516,109 @@ func (doc *Document) compareValues(actual interface{}, expected string, operator
 			case float64:
 				return (v != 0) == expectedBool
 			case string:
-				// Handle string representations of booleans
 				return (v == "true") == expectedBool
 			default:
 				return false
 			}
 		}
 
-		// Handle string comparison (remove quotes)
+		// String comparison (remove quotes)
 		if strings.HasPrefix(expected, "'") && strings.HasSuffix(expected, "'") {
 			expectedStr := strings.Trim(expected, "'")
 			if actualStr, ok := actual.(string); ok {
 				return actualStr == expectedStr
 			}
 		}
-
-		// Also handle string comparison without quotes for literal matches
+		if strings.HasPrefix(expected, "\"") && strings.HasSuffix(expected, "\"") {
+			expectedStr := strings.Trim(expected, "\"")
+			if actualStr, ok := actual.(string); ok {
+				return actualStr == expectedStr
+			}
+		}
+		// String comparison without quotes
 		if actualStr, ok := actual.(string); ok {
 			return actualStr == expected
 		}
 
-		// Handle numeric comparison
+		// Numeric comparison
 		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
 			switch v := actual.(type) {
 			case float64:
 				return v == expectedFloat
 			case int:
 				return float64(v) == expectedFloat
-			default:
-				return false
+			case int64:
+				return float64(v) == expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat == expectedFloat
+				}
 			}
 		}
+		return false
+
+	case "!=":
+		// nil/null
+		if isNil(actual) && (expected == "null" || expected == "nil") {
+			return false
+		}
+		if (expected == "null" || expected == "nil") && !isNil(actual) {
+			return true
+		}
+		if isNil(actual) && expected != "null" && expected != "nil" {
+			return true
+		}
+
+		// Boolean
+		if expected == "true" || expected == "false" {
+			expectedBool := expected == "true"
+			switch v := actual.(type) {
+			case bool:
+				return v != expectedBool
+			case int:
+				return (v != 0) != expectedBool
+			case float64:
+				return (v != 0) != expectedBool
+			case string:
+				return (v == "true") != expectedBool
+			default:
+				return true
+			}
+		}
+
+		// String (remove quotes)
+		if strings.HasPrefix(expected, "'") && strings.HasSuffix(expected, "'") {
+			expectedStr := strings.Trim(expected, "'")
+			if actualStr, ok := actual.(string); ok {
+				return actualStr != expectedStr
+			}
+		}
+		if strings.HasPrefix(expected, "\"") && strings.HasSuffix(expected, "\"") {
+			expectedStr := strings.Trim(expected, "\"")
+			if actualStr, ok := actual.(string); ok {
+				return actualStr != expectedStr
+			}
+		}
+		if actualStr, ok := actual.(string); ok {
+			return actualStr != expected
+		}
+
+		// Numeric
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v != expectedFloat
+			case int:
+				return float64(v) != expectedFloat
+			case int64:
+				return float64(v) != expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat != expectedFloat
+				}
+			}
+		}
+		return true
 
 	case "<":
 		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
@@ -1463,10 +1627,15 @@ func (doc *Document) compareValues(actual interface{}, expected string, operator
 				return v < expectedFloat
 			case int:
 				return float64(v) < expectedFloat
-			default:
-				return false
+			case int64:
+				return float64(v) < expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat < expectedFloat
+				}
 			}
 		}
+		return false
 
 	case ">":
 		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
@@ -1475,11 +1644,88 @@ func (doc *Document) compareValues(actual interface{}, expected string, operator
 				return v > expectedFloat
 			case int:
 				return float64(v) > expectedFloat
-			default:
-				return false
+			case int64:
+				return float64(v) > expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat > expectedFloat
+				}
 			}
 		}
+		return false
+
+	case "<=":
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v <= expectedFloat
+			case int:
+				return float64(v) <= expectedFloat
+			case int64:
+				return float64(v) <= expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat <= expectedFloat
+				}
+			}
+		}
+		return false
+
+	case ">=":
+		if expectedFloat, err := strconv.ParseFloat(expected, 64); err == nil {
+			switch v := actual.(type) {
+			case float64:
+				return v >= expectedFloat
+			case int:
+				return float64(v) >= expectedFloat
+			case int64:
+				return float64(v) >= expectedFloat
+			case string:
+				if actualFloat, err := strconv.ParseFloat(v, 64); err == nil {
+					return actualFloat >= expectedFloat
+				}
+			}
+		}
+		return false
 	}
 
 	return false
+}
+
+// splitPath splits a path on dots but ignores dots inside bracket expressions
+func (doc *Document) splitPath(path string) []string {
+	var parts []string
+	var current strings.Builder
+	bracketDepth := 0
+
+	for _, char := range path {
+		switch char {
+		case '[':
+			bracketDepth++
+			current.WriteRune(char)
+		case ']':
+			bracketDepth--
+			current.WriteRune(char)
+		case '.':
+			if bracketDepth == 0 {
+				// We're not inside brackets, so this dot is a path separator
+				if current.Len() > 0 {
+					parts = append(parts, current.String())
+					current.Reset()
+				}
+			} else {
+				// We're inside brackets, so this dot is part of the expression
+				current.WriteRune(char)
+			}
+		default:
+			current.WriteRune(char)
+		}
+	}
+
+	// Add the last part
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
 }
