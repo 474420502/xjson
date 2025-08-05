@@ -55,17 +55,27 @@ func (m *Modifier) Delete(data *interface{}, path string) error {
 	return m.deleteAtPath(data, segments)
 }
 
-// parsePath converts a dot-notation path into segments
+// parsePath converts a dot-notation or XPath-style path into segments
 func (m *Modifier) parsePath(path string) []string {
 	if path == "" {
 		return nil
 	}
 
-	// Simple implementation - split by dots
-	// TODO: Handle escaped dots and array indices
-	parts := strings.Split(path, ".")
-	var segments []string
+	// Handle XPath-style paths vs traditional dot notation
+	var parts []string
+	if strings.HasPrefix(path, "/") {
+		// XPath-style path: /user/profile/name
+		parts = strings.Split(path, "/")
+		// Remove empty first element from leading slash
+		if len(parts) > 0 && parts[0] == "" {
+			parts = parts[1:]
+		}
+	} else {
+		// Traditional dot notation: user.profile.name
+		parts = strings.Split(path, ".")
+	}
 
+	var segments []string
 	for _, part := range parts {
 		if part != "" {
 			segments = append(segments, part)

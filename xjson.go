@@ -149,28 +149,80 @@ func (doc *Document) Query(path string) *Result {
 		return &Result{matches: []interface{}{}}
 	}
 
+	// Handle empty path
+	if path == "" {
+		// Return the entire document
+		if !doc.isMaterialized {
+			if err := doc.materialize(); err != nil {
+				return &Result{err: err}
+			}
+		}
+		return &Result{matches: []interface{}{doc.materialized}}
+	}
+
+	// Handle root path access
+	if path == "/" {
+		// Return the entire document
+		if !doc.isMaterialized {
+			if err := doc.materialize(); err != nil {
+				return &Result{err: err}
+			}
+		}
+		return &Result{matches: []interface{}{doc.materialized}}
+	}
+
 	// For read operations, use lazy parsing when possible
 	if !doc.isMaterialized {
 
 		// Try simple direct access first without materializing
-		if !strings.Contains(path, "[") && !strings.Contains(path, "..") && !strings.Contains(path, "//") {
+		// Skip if it's a complex path (contains array access, recursive queries, or nested paths)
+		isSimplePath := !strings.Contains(path, "[") &&
+			!strings.Contains(path, "..") &&
+			!strings.Contains(path, "//") &&
+			!strings.Contains(path, ".") &&
+			!(strings.HasPrefix(path, "/") && strings.Contains(path[1:], "/"))
+
+		if isSimplePath {
 			// Simple field access - try direct JSON parsing
 			var data map[string]interface{}
 			if err := json.Unmarshal(doc.raw, &data); err == nil {
 				if val, exists := data[path]; exists {
 					return &Result{matches: []interface{}{val}}
 				}
-				// Try dotted path
-				if strings.Contains(path, ".") {
-					current := interface{}(data)
-					parts := strings.Split(path, ".")
-					found := true
-					for _, part := range parts {
-						if part == "" {
-							continue
-						}
+			}
+		}
+
+		// For complex paths (both dot notation and XPath style), try path resolution
+		if strings.Contains(path, ".") || strings.HasPrefix(path, "/") {
+			var data interface{}
+			if err := json.Unmarshal(doc.raw, &data); err == nil {
+				current := data
+				var parts []string
+				if strings.HasPrefix(path, "/") {
+					// XPath-style path: /user/profile/name or /user/orders[0]/total
+					pathWithoutLeadingSlash := path[1:] // Remove leading slash
+					parts = strings.Split(pathWithoutLeadingSlash, "/")
+				} else {
+					// Traditional dot notation: user.profile.name
+					parts = strings.Split(path, ".")
+				}
+
+				found := true
+				for _, part := range parts {
+					if part == "" {
+						continue
+					}
+
+					// Handle mixed field and array access like "orders[0]"
+					if strings.Contains(part, "[") && strings.HasSuffix(part, "]") {
+						// Split field name and array index
+						bracketIndex := strings.Index(part, "[")
+						fieldName := part[:bracketIndex]
+						arrayPart := part[bracketIndex:]
+
+						// First access the field
 						if obj, ok := current.(map[string]interface{}); ok {
-							if val, exists := obj[part]; exists {
+							if val, exists := obj[fieldName]; exists {
 								current = val
 							} else {
 								found = false
@@ -180,12 +232,37 @@ func (doc *Document) Query(path string) *Result {
 							found = false
 							break
 						}
+
+						// Then handle array access
+						indexStr := arrayPart[1 : len(arrayPart)-1]
+						if index, err := strconv.Atoi(indexStr); err == nil {
+							if arr, ok := current.([]interface{}); ok {
+								if index >= 0 && index < len(arr) {
+									current = arr[index]
+									continue
+								}
+							}
+						}
+						found = false
+						break
 					}
-					if found {
-						return &Result{matches: []interface{}{current}}
+
+					// Handle object field access
+					if obj, ok := current.(map[string]interface{}); ok {
+						if val, exists := obj[part]; exists {
+							current = val
+						} else {
+							found = false
+							break
+						}
+					} else {
+						found = false
+						break
 					}
 				}
-				return &Result{matches: []interface{}{}}
+				if found {
+					return &Result{matches: []interface{}{current}}
+				}
 			}
 		}
 
@@ -222,8 +299,254 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 		return doc.handleRecursiveQuery(data, path)
 	}
 
-	// Handle simple field access (no dots, no brackets)
-	if !strings.Contains(path, ".") && !strings.Contains(path, "[") {
+	// Handle simple paths with array access or filters (like "products[0]" or "products[?(@.field == value)]")
+	if strings.Contains(path, "[") && strings.HasSuffix(path, "]") && !strings.Contains(path, ".") && !strings.HasPrefix(path, "/") {
+		// Split field name and array/filter part
+		bracketIndex := strings.Index(path, "[")
+		fieldName := path[:bracketIndex]
+		arrayPart := path[bracketIndex:]
+
+		// Handle the case where fieldName is empty (pure array access like "[0]")
+		var current interface{} = data
+		if fieldName != "" {
+			// First access the field
+			if obj, ok := data.(map[string]interface{}); ok {
+				if val, exists := obj[fieldName]; exists {
+					current = val
+				} else {
+					return false, nil
+				}
+			} else {
+				return false, nil
+			}
+		}
+		// If fieldName is empty, current is already data (root level array access)
+
+		// Then handle the array access or filter
+		if strings.HasPrefix(arrayPart, "[") && strings.HasSuffix(arrayPart, "]") {
+			indexStr := arrayPart[1 : len(arrayPart)-1]
+
+			// Handle filter expressions like [?(@.field == value)]
+			if strings.HasPrefix(indexStr, "?(") && strings.HasSuffix(indexStr, ")") {
+				if arr, ok := current.([]interface{}); ok {
+					filtered := doc.applyFilter(arr, indexStr)
+					return len(filtered) > 0, filtered
+				}
+				return false, nil
+			}
+
+			// Handle slice syntax [start:end]
+			if strings.Contains(indexStr, ":") {
+				parts := strings.Split(indexStr, ":")
+				if len(parts) == 2 {
+					var start, end int
+					var err1, err2 error
+
+					// Handle open-ended slices like [1:] and [:2]
+					if parts[0] == "" {
+						start = 0 // [:end] starts from 0
+					} else {
+						start, err1 = strconv.Atoi(parts[0])
+					}
+
+					if parts[1] == "" {
+						// [start:] goes to the end - we'll set end later
+						end = -1 // Use -1 as a marker for "to the end"
+						err2 = nil
+					} else {
+						end, err2 = strconv.Atoi(parts[1])
+					}
+
+					if err1 == nil && err2 == nil {
+						if arr, ok := current.([]interface{}); ok {
+							// Handle negative indices for slice
+							if start < 0 {
+								start = len(arr) + start
+							}
+							if end == -1 {
+								end = len(arr) // [start:] goes to the end
+							} else if end < 0 {
+								end = len(arr) + end
+							}
+							// Clamp to array bounds
+							if start < 0 {
+								start = 0
+							}
+							if end > len(arr) {
+								end = len(arr)
+							}
+							if start <= end && start < len(arr) {
+								slice := arr[start:end]
+								return len(slice) > 0, slice
+							}
+						}
+					}
+				}
+				return false, nil
+			}
+
+			// Handle single index
+			if index, err := strconv.Atoi(indexStr); err == nil {
+				if arr, ok := current.([]interface{}); ok {
+					// Handle negative indices
+					if index < 0 {
+						index = len(arr) + index
+					}
+					if index >= 0 && index < len(arr) {
+						return true, arr[index]
+					}
+				}
+			}
+			return false, nil
+		}
+	}
+
+	// Handle XPath-style or dotted paths
+	if strings.Contains(path, ".") || strings.HasPrefix(path, "/") {
+		var parts []string
+		if strings.HasPrefix(path, "/") {
+			// XPath-style path: /user/profile/name or /user/orders[0]/total
+			pathWithoutLeadingSlash := path[1:] // Remove leading slash
+			parts = strings.Split(pathWithoutLeadingSlash, "/")
+		} else {
+			// Traditional dot notation: user.profile.name
+			parts = doc.splitPath(path)
+		}
+
+		current := data
+		for _, part := range parts {
+			if part == "" {
+				continue
+			}
+
+			// Handle mixed field and array access like "orders[0]"
+			if strings.Contains(part, "[") && strings.HasSuffix(part, "]") {
+				// Split field name and array index
+				bracketIndex := strings.Index(part, "[")
+				fieldName := part[:bracketIndex]
+				arrayPart := part[bracketIndex:]
+
+				// First access the field
+				if obj, ok := current.(map[string]interface{}); ok {
+					if val, exists := obj[fieldName]; exists {
+						current = val
+					} else {
+						return false, nil
+					}
+				} else {
+					return false, nil
+				}
+
+				// Then handle array access
+				indexStr := arrayPart[1 : len(arrayPart)-1]
+
+				// Handle filter expressions like [?(@.field == value)]
+				if strings.HasPrefix(indexStr, "?(") && strings.HasSuffix(indexStr, ")") {
+					if arr, ok := current.([]interface{}); ok {
+						filtered := doc.applyFilter(arr, indexStr)
+						current = filtered
+						continue
+					}
+					return false, nil
+				}
+
+				// Handle slice syntax [start:end]
+				if strings.Contains(indexStr, ":") {
+					parts := strings.Split(indexStr, ":")
+					if len(parts) == 2 {
+						var start, end int
+						var err1, err2 error
+
+						// Handle open-ended slices like [1:] and [:2]
+						if parts[0] == "" {
+							start = 0 // [:end] starts from 0
+						} else {
+							start, err1 = strconv.Atoi(parts[0])
+						}
+
+						if parts[1] == "" {
+							// [start:] goes to the end - we'll set end later
+							end = -1 // Use -1 as a marker for "to the end"
+							err2 = nil
+						} else {
+							end, err2 = strconv.Atoi(parts[1])
+						}
+
+						if err1 == nil && err2 == nil {
+							if arr, ok := current.([]interface{}); ok {
+								// Handle negative indices for slice
+								if start < 0 {
+									start = len(arr) + start
+								}
+								if end == -1 {
+									end = len(arr) // [start:] goes to the end
+								} else if end < 0 {
+									end = len(arr) + end
+								}
+								// Clamp to array bounds
+								if start < 0 {
+									start = 0
+								}
+								if end > len(arr) {
+									end = len(arr)
+								}
+								if start <= end && start < len(arr) {
+									slice := arr[start:end]
+									current = slice
+									continue
+								}
+							}
+						}
+					}
+					return false, nil
+				}
+
+				// Handle single index
+				if index, err := strconv.Atoi(indexStr); err == nil {
+					if arr, ok := current.([]interface{}); ok {
+						// Handle negative indices
+						if index < 0 {
+							index = len(arr) + index
+						}
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+				}
+				return false, nil
+			}
+
+			// Handle pure array access like "[0]"
+			if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
+				indexStr := part[1 : len(part)-1]
+				if index, err := strconv.Atoi(indexStr); err == nil {
+					if arr, ok := current.([]interface{}); ok {
+						if index >= 0 && index < len(arr) {
+							current = arr[index]
+							continue
+						}
+					}
+				}
+				return false, nil
+			}
+
+			// Handle object field access
+			if obj, ok := current.(map[string]interface{}); ok {
+				if val, exists := obj[part]; exists {
+					current = val
+				} else {
+					return false, nil
+				}
+			} else {
+				return false, nil
+			}
+		}
+		return true, current
+	}
+
+	// Handle simple field access (no dots, no brackets, no XPath)
+	if !strings.Contains(path, ".") && !strings.Contains(path, "[") && !strings.HasPrefix(path, "/") {
 		return false, nil // Already checked above
 	}
 
@@ -235,15 +558,33 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 		if strings.Contains(indexStr, ":") {
 			parts := strings.Split(indexStr, ":")
 			if len(parts) == 2 {
-				start, err1 := strconv.Atoi(parts[0])
-				end, err2 := strconv.Atoi(parts[1])
+				var start, end int
+				var err1, err2 error
+
+				// Handle open-ended slices like [1:] and [:2]
+				if parts[0] == "" {
+					start = 0 // [:end] starts from 0
+				} else {
+					start, err1 = strconv.Atoi(parts[0])
+				}
+
+				if parts[1] == "" {
+					// [start:] goes to the end - we'll set end later
+					end = -1 // Use -1 as a marker for "to the end"
+					err2 = nil
+				} else {
+					end, err2 = strconv.Atoi(parts[1])
+				}
+
 				if err1 == nil && err2 == nil {
 					if arr, ok := data.([]interface{}); ok {
 						// Handle negative indices for slice
 						if start < 0 {
 							start = len(arr) + start
 						}
-						if end < 0 {
+						if end == -1 {
+							end = len(arr) // [start:] goes to the end
+						} else if end < 0 {
 							end = len(arr) + end
 						}
 						// Clamp to array bounds
@@ -373,15 +714,33 @@ func (doc *Document) getValueWithExists(data interface{}, path string) (bool, in
 				if strings.Contains(indexStr, ":") {
 					parts := strings.Split(indexStr, ":")
 					if len(parts) == 2 {
-						start, err1 := strconv.Atoi(parts[0])
-						end, err2 := strconv.Atoi(parts[1])
+						var start, end int
+						var err1, err2 error
+
+						// Handle open-ended slices like [1:] and [:2]
+						if parts[0] == "" {
+							start = 0 // [:end] starts from 0
+						} else {
+							start, err1 = strconv.Atoi(parts[0])
+						}
+
+						if parts[1] == "" {
+							// [start:] goes to the end - we'll set end later
+							end = -1 // Use -1 as a marker for "to the end"
+							err2 = nil
+						} else {
+							end, err2 = strconv.Atoi(parts[1])
+						}
+
 						if err1 == nil && err2 == nil {
 							if arr, ok := current.([]interface{}); ok {
 								// Handle negative indices for slice
 								if start < 0 {
 									start = len(arr) + start
 								}
-								if end < 0 {
+								if end == -1 {
+									end = len(arr) // [start:] goes to the end
+								} else if end < 0 {
 									end = len(arr) + end
 								}
 								// Clamp to array bounds
@@ -644,8 +1003,19 @@ func (doc *Document) getValue(data interface{}, path string) interface{} {
 		return nil
 	}
 
-	// Handle dotted paths by splitting on dots
-	parts := strings.Split(path, ".")
+	// Handle dotted paths or XPath-style paths
+	var parts []string
+	if strings.HasPrefix(path, "/") {
+		// XPath-style path: /user/profile/name
+		parts = strings.Split(path, "/")
+		// Remove empty first element from leading slash
+		if len(parts) > 0 && parts[0] == "" {
+			parts = parts[1:]
+		}
+	} else {
+		// Traditional dot notation: user.profile.name
+		parts = strings.Split(path, ".")
+	}
 	current := data
 
 	for _, part := range parts {
@@ -1461,10 +1831,25 @@ func (doc *Document) evaluateSimpleExpression(item interface{}, expr string) boo
 		expectedValue = expectedValue[1 : len(expectedValue)-1]
 	}
 
-	// Support nested field access: @.a.b.c
+	// Support nested field access: @.a.b.c or @/a/b/c
 	fieldName := fieldPath[2:]
 	var actualValue interface{} = item
-	for _, part := range strings.Split(fieldName, ".") {
+
+	// Parse field path segments
+	var parts []string
+	if strings.HasPrefix(fieldName, "/") {
+		// XPath-style path: /a/b/c
+		parts = strings.Split(fieldName, "/")
+		// Remove empty first element from leading slash
+		if len(parts) > 0 && parts[0] == "" {
+			parts = parts[1:]
+		}
+	} else {
+		// Traditional dot notation: a.b.c
+		parts = strings.Split(fieldName, ".")
+	}
+
+	for _, part := range parts {
 		if m, ok := actualValue.(map[string]interface{}); ok {
 			actualValue = m[part]
 		} else {
