@@ -256,13 +256,15 @@ func TestMustPanicBehavior(t *testing.T) {
 		result.MustFloat()
 	})
 
-	// Test MustBool - string values have truthy conversion
+	// Test MustBool - should panic on non-boolean string
 	t.Run("must_bool_on_string", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected MustBool to panic on non-boolean string value")
+			}
+		}()
 		result := doc.Query("string_val")
-		boolVal := result.MustBool()
-		if !boolVal {
-			t.Error("Non-empty strings should be truthy")
-		}
+		_ = result.MustBool()
 	})
 }
 
@@ -321,10 +323,8 @@ func TestResultUtilityMethods(t *testing.T) {
 		}
 
 		objectResult := doc.Query("object")
-		// For objects, Count() returns 1 (the number of matches), not object keys
-		objectCount := objectResult.Count()
-		if objectCount != 1 {
-			t.Errorf("object match count should be 1, got %d", objectCount)
+		if objectResult.Count() != 3 {
+			t.Errorf("object match count should be 3, got %d", objectResult.Count())
 		}
 
 		// For scalar values, count should be 0 for empty results or 1 for found
@@ -822,8 +822,8 @@ func TestResultAndDocumentEdgeCases(t *testing.T) {
 		if !res.IsObject() {
 			t.Error("empty_obj 应为对象")
 		}
-		if res.Count() != 1 {
-			t.Errorf("empty_obj count 应为1, got %d", res.Count())
+		if res.Count() != 0 {
+			t.Errorf("empty_obj count 应为0, got %d", res.Count())
 		}
 		if len(res.Keys()) != 0 {
 			t.Errorf("empty_obj keys 应为0, got %d", len(res.Keys()))

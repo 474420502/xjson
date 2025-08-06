@@ -58,7 +58,7 @@ func TestAdvancedXPathQueries(t *testing.T) {
 	}{
 		{
 			name:     "all books",
-			query:    "store.book",
+			query:    "/store/book",
 			expected: 4,
 			validate: func(t *testing.T, result IResult) {
 				if !result.IsArray() {
@@ -71,7 +71,7 @@ func TestAdvancedXPathQueries(t *testing.T) {
 		},
 		{
 			name:     "first book title",
-			query:    "store.book[0].title",
+			query:    "/store/book[0]/title",
 			expected: 1,
 			validate: func(t *testing.T, result IResult) {
 				title := result.MustString()
@@ -82,7 +82,7 @@ func TestAdvancedXPathQueries(t *testing.T) {
 		},
 		{
 			name:     "last book by negative index",
-			query:    "store.book[-1].title",
+			query:    "/store/book[-1]/title",
 			expected: 1,
 			validate: func(t *testing.T, result IResult) {
 				title := result.MustString()
@@ -93,7 +93,7 @@ func TestAdvancedXPathQueries(t *testing.T) {
 		},
 		{
 			name:     "books slice [1:3]",
-			query:    "store.book[1:3]",
+			query:    "/store/book[1:3]",
 			expected: 2,
 			validate: func(t *testing.T, result IResult) {
 				if !result.IsArray() {
@@ -106,7 +106,7 @@ func TestAdvancedXPathQueries(t *testing.T) {
 		},
 		{
 			name:     "all prices",
-			query:    "store..price",
+			query:    "/store//price",
 			expected: 5, // 4 books + 1 bicycle
 			validate: func(t *testing.T, result IResult) {
 				if !result.IsArray() {
@@ -169,7 +169,7 @@ func TestFilterExpressions(t *testing.T) {
 	// 但这些测试定义了我们想要实现的功能
 	t.Run("price_filter_less_than", func(t *testing.T) {
 		// 查找价格小于100的产品
-		result := doc.Query("products[?(@.price < 100)]")
+		result := doc.Query("/products[?(@.price < 100)]")
 		if !result.Exists() {
 			t.Error("Expected results for price < 100 filter")
 			return
@@ -184,7 +184,7 @@ func TestFilterExpressions(t *testing.T) {
 
 	t.Run("category_filter_equals", func(t *testing.T) {
 		// 查找电子产品
-		result := doc.Query("products[?(@.category == 'electronics')]")
+		result := doc.Query("/products[?(@.category == 'electronics')]")
 		if !result.Exists() {
 			t.Error("Expected results for category == 'electronics' filter")
 			return
@@ -199,7 +199,7 @@ func TestFilterExpressions(t *testing.T) {
 
 	t.Run("boolean_filter", func(t *testing.T) {
 		// 查找有库存的产品
-		result := doc.Query("products[?(@.inStock == true)]")
+		result := doc.Query("/products[?(@.inStock == true)]")
 		if !result.Exists() {
 			t.Error("Expected results for inStock == true filter")
 			return
@@ -213,7 +213,7 @@ func TestFilterExpressions(t *testing.T) {
 
 	t.Run("complex_filter_and", func(t *testing.T) {
 		// 查找价格小于100且有库存的产品
-		result := doc.Query("products[?(@.price < 100 && @.inStock == true)]")
+		result := doc.Query("/products[?(@.price < 100 && @.inStock == true)]")
 		if !result.Exists() {
 			t.Error("Expected results for complex AND filter")
 			return
@@ -227,7 +227,7 @@ func TestFilterExpressions(t *testing.T) {
 
 	t.Run("complex_filter_or", func(t *testing.T) {
 		// 查找价格大于500或者类别是教育的产品
-		result := doc.Query("products[?(@.price > 500 || @.category == 'education')]")
+		result := doc.Query("/products[?(@.price > 500 || @.category == 'education')]")
 		count := result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 products matching OR filter, got %d", count)

@@ -225,7 +225,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 			t.Errorf("Bool() on 'false' should succeed, got error: %v", err2)
 		}
 		if b2 {
-			t.Error("Bool() on 'false' should return false")
+			t.Error("Bool() on 'false' should return false, but got true")
 		}
 
 		// 测试 int64 类型

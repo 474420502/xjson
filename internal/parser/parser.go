@@ -344,7 +344,13 @@ func (p *Parser) parseStep() (Step, error) {
 		step.Type = StepDescendant
 		step.Axis = AxisDescendant
 		p.nextToken()
-	} else if p.current.Type == TokenSlash || p.current.Type == TokenDot {
+	} else if p.current.Type == TokenSlash {
+		step.Type = StepChild
+		step.Axis = AxisChild
+		p.nextToken()
+	} else if p.current.Type == TokenDot {
+		// Deprecation warning for dot notation
+		fmt.Println("Warning: Dot notation for path separation is deprecated and will be removed in a future version. Please use '/' as the child separator.")
 		step.Type = StepChild
 		step.Axis = AxisChild
 		p.nextToken()

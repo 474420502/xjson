@@ -86,44 +86,32 @@ func TestFinalCoverageImprovements(t *testing.T) {
 
 	// Test Bool() edge cases
 	t.Run("Bool_EdgeCases", func(t *testing.T) {
-		// Test array type conversion - Bool() treats non-nil values as truthy
+		// Test array type conversion - should now fail
 		doc, _ := ParseString(`{"arr":[1,2,3]}`)
-		result, err := doc.Query("arr").Bool()
-		if err != nil {
-			t.Errorf("Bool() on array should succeed, got error: %v", err)
-		}
-		if !result {
-			t.Error("Bool() on non-empty array should return true")
+		_, err := doc.Query("arr").Bool()
+		if err == nil {
+			t.Error("Bool() on array should fail with type mismatch")
 		}
 
-		// Test object type conversion - Bool() treats non-nil values as truthy
+		// Test object type conversion - should now fail
 		doc2, _ := ParseString(`{"obj":{"a":1}}`)
-		result2, err2 := doc2.Query("obj").Bool()
-		if err2 != nil {
-			t.Errorf("Bool() on object should succeed, got error: %v", err2)
-		}
-		if !result2 {
-			t.Error("Bool() on non-empty object should return true")
+		_, err2 := doc2.Query("obj").Bool()
+		if err2 == nil {
+			t.Error("Bool() on object should fail with type mismatch")
 		}
 
-		// Test string that can't be parsed as bool
+		// Test string that can't be parsed as bool - should now fail
 		doc3, _ := ParseString(`{"str":"not_bool_but_non_empty"}`)
-		result3, err3 := doc3.Query("str").Bool()
-		if err3 != nil {
-			t.Errorf("Bool() on non-empty string should succeed, got error: %v", err3)
-		}
-		if !result3 {
-			t.Error("Bool() on non-empty string should return true")
+		_, err3 := doc3.Query("str").Bool()
+		if err3 == nil {
+			t.Error("Bool() on non-boolean string should fail with type mismatch")
 		}
 
-		// Test empty string
+		// Test empty string - should now fail
 		doc4, _ := ParseString(`{"str":""}`)
-		result4, err4 := doc4.Query("str").Bool()
-		if err4 != nil {
-			t.Errorf("Bool() on empty string should succeed, got error: %v", err4)
-		}
-		if result4 {
-			t.Error("Bool() on empty string should return false")
+		_, err4 := doc4.Query("str").Bool()
+		if err4 == nil {
+			t.Error("Bool() on empty string should fail with type mismatch")
 		}
 	})
 

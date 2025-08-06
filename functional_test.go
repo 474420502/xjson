@@ -26,7 +26,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test basic string access
-	name, err := doc.Query("name").String()
+	name, err := doc.Query("/name").String()
 	if err != nil {
 		t.Errorf("Query('name').String() failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test integer access
-	age, err := doc.Query("age").Int()
+	age, err := doc.Query("/age").Int()
 	if err != nil {
 		t.Errorf("Query('age').Int() failed: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test boolean access
-	active, err := doc.Query("active").Bool()
+	active, err := doc.Query("/active").Bool()
 	if err != nil {
 		t.Errorf("Query('active').Bool() failed: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test float access
-	score, err := doc.Query("score").Float()
+	score, err := doc.Query("/score").Float()
 	if err != nil {
 		t.Errorf("Query('score').Float() failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test nested object access
-	email, err := doc.Query("profile.email").String()
+	email, err := doc.Query("/profile/email").String()
 	if err != nil {
 		t.Errorf("Query('profile.email').String() failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test deep nested access
-	theme, err := doc.Query("profile.preferences.theme").String()
+	theme, err := doc.Query("/profile/preferences/theme").String()
 	if err != nil {
 		t.Errorf("Query('profile.preferences.theme').String() failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test array access
-	firstHobby, err := doc.Query("hobbies[0]").String()
+	firstHobby, err := doc.Query("/hobbies[0]").String()
 	if err != nil {
 		t.Errorf("Query('hobbies[0]').String() failed: %v", err)
 	}
@@ -89,28 +89,28 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test array length
-	hobbies := doc.Query("hobbies")
+	hobbies := doc.Query("/hobbies")
 	if !hobbies.IsArray() {
 		t.Errorf("hobbies should be an array")
 	}
-	if hobbies.Count() != 1 { // Current implementation returns single match
-		t.Logf("hobbies count: %d (expected behavior for current implementation)", hobbies.Count())
+	if hobbies.Count() != 3 {
+		t.Errorf("Expected hobbies count to be 3, got %d", hobbies.Count())
 	}
 
 	// Test null value
-	metadata := doc.Query("metadata")
+	metadata := doc.Query("/metadata")
 	if !metadata.IsNull() {
 		t.Errorf("metadata should be null")
 	}
 
 	// Test non-existent path
-	missing := doc.Query("nonexistent")
+	missing := doc.Query("/nonexistent")
 	if missing.Exists() {
 		t.Errorf("nonexistent path should not exist")
 	}
 
 	// Test type checking
-	profile := doc.Query("profile")
+	profile := doc.Query("/profile")
 	if !profile.IsObject() {
 		t.Errorf("profile should be an object")
 	}
@@ -121,13 +121,13 @@ func TestMustMethods(t *testing.T) {
 	doc, _ := ParseString(jsonStr)
 
 	// Test MustString
-	name := doc.Query("name").MustString()
+	name := doc.Query("/name").MustString()
 	if name != "Bob" {
 		t.Errorf("Expected 'Bob', got '%s'", name)
 	}
 
 	// Test MustInt
-	age := doc.Query("age").MustInt()
+	age := doc.Query("/age").MustInt()
 	if age != 25 {
 		t.Errorf("Expected 25, got %d", age)
 	}
@@ -138,7 +138,7 @@ func TestMustMethods(t *testing.T) {
 			t.Errorf("Expected panic for invalid query")
 		}
 	}()
-	_ = doc.Query("nonexistent").MustString()
+	_ = doc.Query("/nonexistent").MustString()
 }
 
 func TestResultMethods(t *testing.T) {
@@ -157,7 +157,7 @@ func TestResultMethods(t *testing.T) {
 	doc, _ := ParseString(jsonStr)
 
 	// Test Get method
-	user := doc.Query("users[0]")
+	user := doc.Query("/users[0]")
 	userName, err := user.Get("name").String()
 	if err != nil {
 		t.Errorf("Get('name').String() failed: %v", err)
@@ -167,7 +167,7 @@ func TestResultMethods(t *testing.T) {
 	}
 
 	// Test Keys method
-	config := doc.Query("config")
+	config := doc.Query("/config")
 	keys := config.Keys()
 	if len(keys) != 2 {
 		t.Errorf("Expected 2 keys, got %d", len(keys))
@@ -202,7 +202,7 @@ func TestTypeConversions(t *testing.T) {
 	doc, _ := ParseString(jsonStr)
 
 	// Test string to int conversion
-	stringToInt, err := doc.Query("stringNumber").Int()
+	stringToInt, err := doc.Query("/stringNumber").Int()
 	if err != nil {
 		t.Errorf("String to int conversion failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestTypeConversions(t *testing.T) {
 	}
 
 	// Test float to int conversion
-	floatToInt, err := doc.Query("floatNumber").Int()
+	floatToInt, err := doc.Query("/floatNumber").Int()
 	if err != nil {
 		t.Errorf("Float to int conversion failed: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestTypeConversions(t *testing.T) {
 	}
 
 	// Test int to float conversion
-	intToFloat, err := doc.Query("intNumber").Float()
+	intToFloat, err := doc.Query("/intNumber").Float()
 	if err != nil {
 		t.Errorf("Int to float conversion failed: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestTypeConversions(t *testing.T) {
 	}
 
 	// Test string to bool conversion
-	stringToBool, err := doc.Query("boolString").Bool()
+	stringToBool, err := doc.Query("/boolString").Bool()
 	if err != nil {
 		t.Errorf("String to bool conversion failed: %v", err)
 	}
@@ -237,17 +237,14 @@ func TestTypeConversions(t *testing.T) {
 		t.Errorf("Expected true, got %v", stringToBool)
 	}
 
-	// Test empty string to bool (should be false)
-	emptyToBool, err := doc.Query("emptyString").Bool()
-	if err != nil {
-		t.Errorf("Empty string to bool conversion failed: %v", err)
-	}
-	if emptyToBool {
-		t.Errorf("Expected false for empty string, got %v", emptyToBool)
+	// Test empty string to bool (should error)
+	_, err = doc.Query("/emptyString").Bool()
+	if err == nil {
+		t.Error("Empty string to bool conversion should fail")
 	}
 
 	// Test zero number to bool (should be false)
-	zeroToBool, err := doc.Query("zeroNumber").Bool()
+	zeroToBool, err := doc.Query("/zeroNumber").Bool()
 	if err != nil {
 		t.Errorf("Zero to bool conversion failed: %v", err)
 	}
@@ -265,7 +262,7 @@ func TestArrayOperations(t *testing.T) {
 	doc, _ := ParseString(jsonStr)
 
 	// Test array index access
-	numbers := doc.Query("numbers")
+	numbers := doc.Query("/numbers")
 	if !numbers.IsArray() {
 		t.Errorf("numbers should be an array")
 	}
@@ -295,7 +292,7 @@ func TestArrayOperations(t *testing.T) {
 	}
 
 	// Test mixed array
-	mixed := doc.Query("mixed")
+	mixed := doc.Query("/mixed")
 	firstMixed, err := mixed.Index(0).Bool()
 	if err != nil {
 		t.Errorf("Mixed array index failed: %v", err)

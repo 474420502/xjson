@@ -73,7 +73,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 	t.Run("数字边界情况", func(t *testing.T) {
 		// 零值
-		zero, err := doc.Query("edge_cases.numbers.zero").Int()
+		zero, err := doc.Query("/edge_cases/numbers/zero").Int()
 		if err != nil {
 			t.Errorf("Query zero failed: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 负数
-		negative, err := doc.Query("edge_cases.numbers.negative").Int()
+		negative, err := doc.Query("/edge_cases/numbers/negative").Int()
 		if err != nil {
 			t.Errorf("Query negative failed: %v", err)
 		}
@@ -91,7 +91,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 浮点零
-		floatZero, err := doc.Query("edge_cases.numbers.float_zero").Float()
+		floatZero, err := doc.Query("/edge_cases/numbers/float_zero").Float()
 		if err != nil {
 			t.Errorf("Query float zero failed: %v", err)
 		}
@@ -100,7 +100,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 科学记数法
-		scientific, err := doc.Query("edge_cases.numbers.scientific").Float()
+		scientific, err := doc.Query("/edge_cases/numbers/scientific").Float()
 		if err != nil {
 			t.Errorf("Query scientific notation failed: %v", err)
 		}
@@ -109,7 +109,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 大整数
-		largeInt, err := doc.Query("edge_cases.numbers.large_int").Int()
+		largeInt, err := doc.Query("/edge_cases/numbers/large_int").Int()
 		if err != nil {
 			t.Errorf("Query large int failed: %v", err)
 		}
@@ -118,7 +118,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 小浮点数
-		smallFloat, err := doc.Query("edge_cases.numbers.small_float").Float()
+		smallFloat, err := doc.Query("/edge_cases/numbers/small_float").Float()
 		if err != nil {
 			t.Errorf("Query small float failed: %v", err)
 		}
@@ -129,7 +129,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 	t.Run("字符串边界情况", func(t *testing.T) {
 		// 空字符串
-		empty, err := doc.Query("edge_cases.strings.empty").String()
+		empty, err := doc.Query("/edge_cases/strings/empty").String()
 		if err != nil {
 			t.Errorf("Query empty string failed: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 空白字符
-		whitespace, err := doc.Query("edge_cases.strings.whitespace").String()
+		whitespace, err := doc.Query("/edge_cases/strings/whitespace").String()
 		if err != nil {
 			t.Errorf("Query whitespace failed: %v", err)
 		}
@@ -147,7 +147,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 换行符
-		newlines, err := doc.Query("edge_cases.strings.newlines").String()
+		newlines, err := doc.Query("/edge_cases/strings/newlines").String()
 		if err != nil {
 			t.Errorf("Query newlines failed: %v", err)
 		}
@@ -156,7 +156,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 引号
-		quotes, err := doc.Query("edge_cases.strings.quotes").String()
+		quotes, err := doc.Query("/edge_cases/strings/quotes").String()
 		if err != nil {
 			t.Errorf("Query quotes failed: %v", err)
 		}
@@ -165,7 +165,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 反斜杠
-		backslashes, err := doc.Query("edge_cases.strings.backslashes").String()
+		backslashes, err := doc.Query("/edge_cases/strings/backslashes").String()
 		if err != nil {
 			t.Errorf("Query backslashes failed: %v", err)
 		}
@@ -176,14 +176,14 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 	t.Run("特殊数组情况", func(t *testing.T) {
 		// 单元素数组
-		singleElement := doc.Query("edge_cases.special_arrays.single_element")
+		singleElement := doc.Query("/edge_cases/special_arrays/single_element")
 		if !singleElement.IsArray() {
 			t.Error("single_element should be array")
 		}
 		if singleElement.Count() != 1 {
 			t.Errorf("Expected count 1, got %d", singleElement.Count())
 		}
-		value, err := doc.Query("edge_cases.special_arrays.single_element[0]").Int()
+		value, err := doc.Query("/edge_cases/special_arrays/single_element[0]").Int()
 		if err != nil {
 			t.Errorf("Query single element failed: %v", err)
 		}
@@ -192,7 +192,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 全 null 数组
-		allNulls := doc.Query("edge_cases.special_arrays.all_nulls")
+		allNulls := doc.Query("/edge_cases/special_arrays/all_nulls")
 		if !allNulls.IsArray() {
 			t.Error("all_nulls should be array")
 		}
@@ -202,30 +202,30 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 		// 检查每个元素都是 null
 		for i := 0; i < 3; i++ {
-			nullElement := doc.Query(fmt.Sprintf("edge_cases.special_arrays.all_nulls[%d]", i))
+			nullElement := doc.Query(fmt.Sprintf("/edge_cases/special_arrays/all_nulls[%d]", i))
 			if !nullElement.IsNull() {
 				t.Errorf("Element at index %d should be null", i)
 			}
 		}
 
 		// 混合 null 数组
-		mixedNulls := doc.Query("edge_cases.special_arrays.mixed_nulls")
+		mixedNulls := doc.Query("/edge_cases/special_arrays/mixed_nulls")
 		if mixedNulls.Count() != 5 {
 			t.Errorf("Expected count 5, got %d", mixedNulls.Count())
 		}
 
 		// 检查特定元素
-		firstInt, err := doc.Query("edge_cases.special_arrays.mixed_nulls[0]").Int()
+		firstInt, err := doc.Query("/edge_cases/special_arrays/mixed_nulls[0]").Int()
 		if err != nil || firstInt != 1 {
 			t.Errorf("Expected first element to be 1, got %d (err: %v)", firstInt, err)
 		}
 
-		secondNull := doc.Query("edge_cases.special_arrays.mixed_nulls[1]")
+		secondNull := doc.Query("/edge_cases/special_arrays/mixed_nulls[1]")
 		if !secondNull.IsNull() {
 			t.Error("Second element should be null")
 		}
 
-		thirdString, err := doc.Query("edge_cases.special_arrays.mixed_nulls[2]").String()
+		thirdString, err := doc.Query("/edge_cases/special_arrays/mixed_nulls[2]").String()
 		if err != nil || thirdString != "text" {
 			t.Errorf("Expected third element to be 'text', got '%s' (err: %v)", thirdString, err)
 		}
@@ -233,7 +233,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 	t.Run("复杂嵌套边界", func(t *testing.T) {
 		// 深层嵌套访问
-		deepValue, err := doc.Query("edge_cases.complex_nesting.level1.level2[0].level3.level4[0].level5.final_value").String()
+		deepValue, err := doc.Query("/edge_cases/complex_nesting/level1/level2[0]/level3/level4[0]/level5/final_value").String()
 		if err != nil {
 			t.Errorf("Query deep nested value failed: %v", err)
 		}
@@ -242,22 +242,22 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 验证中间层级
-		level2 := doc.Query("edge_cases.complex_nesting.level1.level2")
+		level2 := doc.Query("/edge_cases/complex_nesting/level1/level2")
 		if !level2.IsArray() {
 			t.Error("level2 should be array")
 		}
 
-		level3 := doc.Query("edge_cases.complex_nesting.level1.level2[0].level3")
+		level3 := doc.Query("/edge_cases/complex_nesting/level1/level2[0]/level3")
 		if !level3.IsObject() {
 			t.Error("level3 should be object")
 		}
 
-		level4 := doc.Query("edge_cases.complex_nesting.level1.level2[0].level3.level4")
+		level4 := doc.Query("/edge_cases/complex_nesting/level1/level2[0]/level3/level4")
 		if !level4.IsArray() {
 			t.Error("level4 should be array")
 		}
 
-		level5 := doc.Query("edge_cases.complex_nesting.level1.level2[0].level3.level4[0].level5")
+		level5 := doc.Query("/edge_cases/complex_nesting/level1/level2[0]/level3/level4[0]/level5")
 		if !level5.IsObject() {
 			t.Error("level5 should be object")
 		}
@@ -265,7 +265,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 
 	t.Run("性能相关测试", func(t *testing.T) {
 		// 大数组访问
-		largeArray := doc.Query("performance_test.large_array")
+		largeArray := doc.Query("/performance_test/large_array")
 		if !largeArray.IsArray() {
 			t.Error("large_array should be array")
 		}
@@ -275,7 +275,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 访问大数组的第一个和最后一个元素
-		firstElement, err := doc.Query("performance_test.large_array[0]").Int()
+		firstElement, err := doc.Query("/performance_test/large_array[0]").Int()
 		if err != nil {
 			t.Errorf("Query first element failed: %v", err)
 		}
@@ -283,7 +283,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 			t.Errorf("Expected 1, got %d", firstElement)
 		}
 
-		lastElement, err := doc.Query("performance_test.large_array[-1]").Int()
+		lastElement, err := doc.Query("/performance_test/large_array[-1]").Int()
 		if err != nil {
 			t.Errorf("Query last element failed: %v", err)
 		}
@@ -292,7 +292,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 中间位置访问
-		middleElement, err := doc.Query("performance_test.large_array[25]").Int()
+		middleElement, err := doc.Query("/performance_test/large_array[25]").Int()
 		if err != nil {
 			t.Errorf("Query middle element failed: %v", err)
 		}
@@ -301,13 +301,13 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 		}
 
 		// 宽对象访问
-		wideObject := doc.Query("performance_test.wide_object")
+		wideObject := doc.Query("/performance_test/wide_object")
 		if !wideObject.IsObject() {
 			t.Error("wide_object should be object")
 		}
 
 		// 访问宽对象的一些字段
-		field1, err := doc.Query("performance_test.wide_object.field1").String()
+		field1, err := doc.Query("/performance_test/wide_object/field1").String()
 		if err != nil {
 			t.Errorf("Query field1 failed: %v", err)
 		}
@@ -315,7 +315,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 			t.Errorf("Expected 'value1', got '%s'", field1)
 		}
 
-		field10, err := doc.Query("performance_test.wide_object.field10").String()
+		field10, err := doc.Query("/performance_test/wide_object/field10").String()
 		if err != nil {
 			t.Errorf("Query field10 failed: %v", err)
 		}
@@ -323,7 +323,7 @@ func TestXPathEdgeCasesAndLimitations(t *testing.T) {
 			t.Errorf("Expected 'value10', got '%s'", field10)
 		}
 
-		field20, err := doc.Query("performance_test.wide_object.field20").String()
+		field20, err := doc.Query("/performance_test/wide_object/field20").String()
 		if err != nil {
 			t.Errorf("Query field20 failed: %v", err)
 		}
@@ -352,7 +352,7 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 
 	t.Run("不存在路径的错误处理", func(t *testing.T) {
 		// 完全不存在的顶级路径
-		nonExistent := doc.Query("completely.non.existent.path")
+		nonExistent := doc.Query("/completely/non/existent/path")
 		if nonExistent.Exists() {
 			t.Error("Non-existent path should not exist")
 		}
@@ -381,7 +381,7 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 
 	t.Run("类型不匹配的错误处理", func(t *testing.T) {
 		// 尝试将字符串转换为数字
-		stringValue := doc.Query("valid.string")
+		stringValue := doc.Query("/valid/string")
 		if !stringValue.Exists() {
 			t.Fatal("String value should exist")
 		}
@@ -404,7 +404,7 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 		}
 
 		// 尝试将数字转换为布尔值（这可能工作或不工作，取决于实现）
-		numberValue := doc.Query("valid.number")
+		numberValue := doc.Query("/valid/number")
 		_, err = numberValue.Bool()
 		if err != nil {
 			t.Logf("Number to bool conversion failed as expected: %v", err)
@@ -414,19 +414,19 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 	})
 
 	t.Run("数组越界错误处理", func(t *testing.T) {
-		validArray := doc.Query("valid.array")
+		validArray := doc.Query("/valid/array")
 		if !validArray.IsArray() {
 			t.Fatal("Array should exist and be array")
 		}
 
 		// 正向越界
-		outOfBounds := doc.Query("valid.array[10]")
+		outOfBounds := doc.Query("/valid/array[10]")
 		if outOfBounds.Exists() {
 			t.Error("Out of bounds positive index should not exist")
 		}
 
 		// 负向越界
-		negativeOutOfBounds := doc.Query("valid.array[-10]")
+		negativeOutOfBounds := doc.Query("/valid/array[-10]")
 		if negativeOutOfBounds.Exists() {
 			t.Error("Out of bounds negative index should not exist")
 		}
@@ -437,20 +437,20 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 
 	t.Run("对象属性访问错误", func(t *testing.T) {
 		// 在非对象上访问属性
-		numberValue := doc.Query("valid.number")
+		numberValue := doc.Query("/valid/number")
 		propertyOnNumber := numberValue.Get("property")
 		if propertyOnNumber.Exists() {
 			t.Error("Property access on number should not exist")
 		}
 
-		arrayValue := doc.Query("valid.array")
+		arrayValue := doc.Query("/valid/array")
 		propertyOnArray := arrayValue.Get("property")
 		if propertyOnArray.Exists() {
 			t.Error("Property access on array should not exist")
 		}
 
 		// 访问不存在的对象属性
-		validObject := doc.Query("valid.object")
+		validObject := doc.Query("/valid/object")
 		nonExistentProperty := validObject.Get("nonexistent")
 		if nonExistentProperty.Exists() {
 			t.Error("Non-existent property should not exist")
@@ -459,13 +459,13 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 
 	t.Run("Must方法的行为", func(t *testing.T) {
 		// Must 方法在错误时会 panic，所以我们测试有效值的 Must 行为
-		validString := doc.Query("valid.string")
+		validString := doc.Query("/valid/string")
 		mustString := validString.MustString()
 		if mustString != "test" {
 			t.Errorf("MustString should return 'test', got '%s'", mustString)
 		}
 
-		validNumber := doc.Query("valid.number")
+		validNumber := doc.Query("/valid/number")
 		mustInt := validNumber.MustInt()
 		if mustInt != 123 {
 			t.Errorf("MustInt should return 123, got %d", mustInt)
@@ -476,7 +476,7 @@ func TestXPathErrorHandlingPatterns(t *testing.T) {
 			t.Errorf("MustFloat should return 123.0, got %f", mustFloat)
 		}
 
-		validBool := doc.Query("valid.boolean")
+		validBool := doc.Query("/valid/boolean")
 		mustBool := validBool.MustBool()
 		if mustBool != true {
 			t.Errorf("MustBool should return true, got %t", mustBool)
@@ -521,7 +521,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 
 	t.Run("ForEach遍历测试", func(t *testing.T) {
 		// 遍历团队
-		teams := doc.Query("teams")
+		teams := doc.Query("/teams")
 		teamCount := 0
 		teams.ForEach(func(index int, value IResult) bool {
 			teamCount++
@@ -549,7 +549,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 		}
 
 		// 遍历分数
-		scores := doc.Query("scores")
+		scores := doc.Query("/scores")
 		scoreSum := 0
 		scoreCount := 0
 		scores.ForEach(func(index int, value IResult) bool {
@@ -570,7 +570,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 
 	t.Run("嵌套迭代测试", func(t *testing.T) {
 		// 遍历团队和成员
-		teams := doc.Query("teams")
+		teams := doc.Query("/teams")
 		totalMembers := 0
 
 		teams.ForEach(func(teamIndex int, team IResult) bool {
@@ -605,7 +605,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 
 	t.Run("中断迭代测试", func(t *testing.T) {
 		// 测试提前中断迭代
-		scores := doc.Query("scores")
+		scores := doc.Query("/scores")
 		processedCount := 0
 
 		scores.ForEach(func(index int, value IResult) bool {
@@ -628,13 +628,13 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 
 	t.Run("Count和索引访问对比", func(t *testing.T) {
 		// 验证 Count() 和实际索引访问的一致性
-		scores := doc.Query("scores")
+		scores := doc.Query("/scores")
 		count := scores.Count()
 
 		// 通过索引访问验证计数
 		accessibleCount := 0
 		for i := 0; i < count+2; i++ { // 多试几个索引
-			element := doc.Query(fmt.Sprintf("scores[%d]", i))
+			element := doc.Query(fmt.Sprintf("/scores[%d]", i))
 			if element.Exists() {
 				accessibleCount++
 			}
@@ -647,7 +647,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 		// 验证具体的值
 		for i := 0; i < count; i++ {
 			expectedValues := []int{85, 90, 78, 92, 88}
-			actual := doc.Query(fmt.Sprintf("scores[%d]", i)).MustInt()
+			actual := doc.Query(fmt.Sprintf("/scores[%d]", i)).MustInt()
 			if actual != expectedValues[i] {
 				t.Errorf("Element at index %d: expected %d, got %d", i, expectedValues[i], actual)
 			}
@@ -656,7 +656,7 @@ func TestXPathIterationAndTraversalPatterns(t *testing.T) {
 
 	t.Run("对象键值遍历", func(t *testing.T) {
 		// 测试对象的键值访问
-		categories := doc.Query("categories")
+		categories := doc.Query("/categories")
 		if !categories.IsObject() {
 			t.Fatal("categories should be an object")
 		}

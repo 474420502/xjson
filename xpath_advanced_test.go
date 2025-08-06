@@ -209,10 +209,10 @@ func TestXPathAdvancedFeatures(t *testing.T) {
 	})
 
 	t.Run("XPath 边界情况", func(t *testing.T) {
-		// 空路径
+		// 空路径 - should now return the root, so it exists
 		result := x.Query("")
-		if result.Exists() {
-			t.Errorf("Empty path should not exist")
+		if !result.Exists() {
+			t.Errorf("Empty path should exist and return the root")
 		}
 
 		// 只有根斜杠

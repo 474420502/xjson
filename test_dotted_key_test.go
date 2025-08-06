@@ -8,20 +8,32 @@ import (
 func TestDottedKeyQuery(t *testing.T) {
 	doc, _ := ParseString(`{"key.with.dots": "value", "normal": {"key.with.dots": "nested"}}`)
 
-	// 设置超时
-	done := make(chan bool, 1)
+	// 1. Test with the old, deprecated dot notation.
+	// This should still work but will print a warning.
+	// We expect it to find the nested value, not the top-level one.
+	resultDot := doc.Query("normal.key.with.dots")
+	if !resultDot.Exists() {
+		t.Errorf("Expected to find value with dot notation query, but it didn't exist.")
+	}
+	if val, _ := resultDot.String(); val != "nested" {
+		t.Errorf("Expected 'nested', got '%s' for dot notation query", val)
+	}
 
-	go func() {
-		result := doc.Query("key.with.dots")
-		t.Logf("Query result exists: %v", result.Exists())
-		done <- true
-	}()
+	// 2. Test with XPath-style query for a key containing dots.
+	// The key "key.with.dots" should be treated as a single identifier.
+	// A simple query "key.with.dots" should NOT work as it's not a valid XPath without a leading '/'.
+	resultInvalidPath := doc.Query("key.with.dots")
+	if resultInvalidPath.Exists() {
+		t.Errorf("Query 'key.with.dots' should not exist without a proper path separator, but it does.")
+	}
 
-	select {
-	case <-done:
-		t.Log("Query completed successfully")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Query timed out - likely infinite loop")
+	// 3. The correct XPath way to query a key with dots is by treating it as a literal name.
+	resultXPath := doc.Query("/key.with.dots")
+	if !resultXPath.Exists() {
+		t.Errorf("Expected to find value with XPath query for dotted key, but it didn't exist.")
+	}
+	if val, _ := resultXPath.String(); val != "value" {
+		t.Errorf("Expected 'value', got '%s' for XPath query", val)
 	}
 }
 

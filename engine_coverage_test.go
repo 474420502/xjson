@@ -32,7 +32,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 			t.Fatalf("Failed to parse nested JSON: %v", err)
 		}
 
-		result = doc.Query("outer.inner.value")
+		result = doc.Query("/outer/inner/value")
 		val, err = result.Int()
 		if err != nil {
 			t.Errorf("Nested access should work: %v", err)
@@ -92,7 +92,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test path with array access
-		result := doc.Query("users[0].name")
+		result := doc.Query("/users[0]/name")
 		if !result.Exists() {
 			t.Error("Array member access should exist")
 		}
@@ -106,19 +106,19 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test non-existent array index
-		result = doc.Query("users[10].name")
+		result = doc.Query("/users[10]/name")
 		if result.Exists() {
 			t.Error("Non-existent array index should not exist")
 		}
 
 		// Test deeply nested path
-		result = doc.Query("config.nested.level")
+		result = doc.Query("/config/nested/level")
 		if !result.Exists() {
 			t.Error("Deep nested path should exist")
 		}
 
 		// Test non-existent path
-		result = doc.Query("config.nonexistent.path")
+		result = doc.Query("/config/nonexistent/path")
 		if result.Exists() {
 			t.Error("Non-existent path should not exist")
 		}
@@ -130,7 +130,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test malformed path
-		result = doc.Query("users[abc].name")
+		result = doc.Query("/users[abc]/name")
 		if result.Exists() {
 			t.Error("Malformed array index should not exist")
 		}
@@ -159,7 +159,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test recursive descent (..)
-		result := doc.Query("..value")
+		result := doc.Query("//value")
 		if !result.Exists() {
 			t.Error("Recursive query should find deep value")
 		}
@@ -173,7 +173,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test recursive search for arrays
-		result = doc.Query("..numbers")
+		result = doc.Query("//numbers")
 		if !result.Exists() {
 			t.Error("Recursive query should find array")
 		}
@@ -203,14 +203,14 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// This should find multiple "items" arrays
-		result = doc.Query("..items")
+		result = doc.Query("//items")
 		count := result.Count()
 		if count < 1 {
 			t.Error("Should find at least one items array")
 		}
 
 		// Test recursive with filtering
-		result = doc.Query("..items[0].name")
+		result = doc.Query("//items[0]/name")
 		if !result.Exists() {
 			t.Logf("NOTE: Recursive queries with array indexing may not be fully implemented")
 		}
@@ -257,14 +257,14 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test wildcard access
-		result = doc.Query("store.book[*].title")
+		result = doc.Query("/store/book[*]/title")
 		count := result.Count()
 		if count != 2 {
 			t.Logf("NOTE: Wildcard operations may not be fully implemented. Expected 2 titles, got %d", count)
 		}
 
 		// Test filter expression
-		result = doc.Query("store.book[?(@.price > 12)]")
+		result = doc.Query("/store/book[?(@.price > 12)]")
 		count = result.Count()
 		if count != 1 {
 			t.Errorf("Filter should return 1 book, got %d", count)
@@ -354,7 +354,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test mixed array access
-		result = doc.Query("mixed_array[4].nested")
+		result = doc.Query("/mixed_array[4]/nested")
 		str, err = result.String()
 		if err != nil {
 			t.Errorf("Mixed array object access should work: %v", err)

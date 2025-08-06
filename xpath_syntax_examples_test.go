@@ -59,7 +59,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 
 	t.Run("基础路径选择", func(t *testing.T) {
 		// 测试直接属性访问
-		title, err := doc.Query("container.h1.text").String()
+		title, err := doc.Query("/container/h1/text").String()
 		if err != nil {
 			t.Errorf("Query container.h1.text failed: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 		}
 
 		// 测试数组访问
-		firstItemClass, err := doc.Query("container.ul.li[0].class").String()
+		firstItemClass, err := doc.Query("/container/ul/li[0]/class").String()
 		if err != nil {
 			t.Errorf("Query container.ul.li[0].class failed: %v", err)
 		}
@@ -77,7 +77,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 		}
 
 		// 测试深层嵌套访问
-		footerText, err := doc.Query("container.footer.p.text").String()
+		footerText, err := doc.Query("/container/footer/p/text").String()
 		if err != nil {
 			t.Errorf("Query container.footer.p.text failed: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 
 	t.Run("数组和索引操作", func(t *testing.T) {
 		// 测试第一个元素
-		firstHref, err := doc.Query("container.ul.li[0].a.href").String()
+		firstHref, err := doc.Query("/container/ul/li[0]/a/href").String()
 		if err != nil {
 			t.Errorf("Query first item href failed: %v", err)
 		}
@@ -97,7 +97,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 		}
 
 		// 测试最后一个元素 (负索引)
-		lastItemText, err := doc.Query("container.ul.li[-1].a.text").String()
+		lastItemText, err := doc.Query("/container/ul/li[-1]/a/text").String()
 		if err != nil {
 			t.Errorf("Query last item text failed: %v", err)
 		}
@@ -106,7 +106,7 @@ func TestXPathSyntaxExamples(t *testing.T) {
 		}
 
 		// 测试中间元素
-		secondHref, err := doc.Query("container.ul.li[1].a.href").String()
+		secondHref, err := doc.Query("/container/ul/li[1]/a/href").String()
 		if err != nil {
 			t.Errorf("Query second item href failed: %v", err)
 		}
@@ -181,7 +181,7 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("基本数组操作", func(t *testing.T) {
 		// 获取第一本书的标题
-		firstTitle, err := doc.Query("store.book[0].title").String()
+		firstTitle, err := doc.Query("/store/book[0]/title").String()
 		if err != nil {
 			t.Errorf("Query first book title failed: %v", err)
 		}
@@ -190,7 +190,7 @@ func TestXPathComplexExamples(t *testing.T) {
 		}
 
 		// 获取最后一本书的价格
-		lastPrice, err := doc.Query("store.book[-1].price").Float()
+		lastPrice, err := doc.Query("/store/book[-1]/price").Float()
 		if err != nil {
 			t.Errorf("Query last book price failed: %v", err)
 		}
@@ -199,7 +199,7 @@ func TestXPathComplexExamples(t *testing.T) {
 		}
 
 		// 测试所有书籍数量
-		books := doc.Query("store.book")
+		books := doc.Query("/store/book")
 		if !books.IsArray() {
 			t.Error("store.book should be an array")
 		}
@@ -211,14 +211,14 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("数组切片操作", func(t *testing.T) {
 		// 测试切片 [0:2] - 前两本书
-		firstTwoBooks := doc.Query("store.book[0:2]")
+		firstTwoBooks := doc.Query("/store/book[0:2]")
 		count := firstTwoBooks.Count()
 		if count != 2 {
 			t.Logf("NOTE: Slice [0:2] returned %d items, expected 2", count)
 		}
 
 		// 测试开放式切片 [1:] - 除第一本外的所有书
-		restBooks := doc.Query("store.book[1:]")
+		restBooks := doc.Query("/store/book[1:]")
 		restCount := restBooks.Count()
 		if restCount != 2 {
 			t.Logf("NOTE: Slice [1:] returned %d items, expected 2", restCount)
@@ -227,21 +227,21 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("过滤查询测试", func(t *testing.T) {
 		// 查找价格小于 10 的书籍
-		cheapBooks := doc.Query("store.book[?(@.price < 10)]")
+		cheapBooks := doc.Query("/store/book[?(@.price < 10)]")
 		cheapCount := cheapBooks.Count()
 		if cheapCount != 2 {
 			t.Logf("NOTE: Filter @.price < 10 found %d books, expected 2", cheapCount)
 		}
 
 		// 查找有库存的书籍
-		inStockBooks := doc.Query("store.book[?(@.inStock == true)]")
+		inStockBooks := doc.Query("/store/book[?(@.inStock == true)]")
 		inStockCount := inStockBooks.Count()
 		if inStockCount != 2 {
 			t.Logf("NOTE: Filter @.inStock == true found %d books, expected 2", inStockCount)
 		}
 
 		// 查找虚构类别的书籍
-		fictionBooks := doc.Query("store.book[?(@.category == 'fiction')]")
+		fictionBooks := doc.Query("/store/book[?(@.category == 'fiction')]")
 		fictionCount := fictionBooks.Count()
 		if fictionCount != 2 {
 			t.Logf("NOTE: Filter @.category == 'fiction' found %d books, expected 2", fictionCount)
@@ -250,14 +250,14 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("复合条件过滤", func(t *testing.T) {
 		// 查找价格小于 10 且有库存的书籍
-		cheapInStock := doc.Query("store.book[?(@.price < 10 && @.inStock == true)]")
+		cheapInStock := doc.Query("/store/book[?(@.price < 10 && @.inStock == true)]")
 		cheapInStockCount := cheapInStock.Count()
 		if cheapInStockCount != 2 {
 			t.Logf("NOTE: Complex filter found %d books, expected 2", cheapInStockCount)
 		}
 
 		// 查找价格大于 10 或者没有库存的书籍
-		expensiveOrOutOfStock := doc.Query("store.book[?(@.price > 10 || @.inStock == false)]")
+		expensiveOrOutOfStock := doc.Query("/store/book[?(@.price > 10 || @.inStock == false)]")
 		count := expensiveOrOutOfStock.Count()
 		if count != 1 {
 			t.Logf("NOTE: Complex OR filter found %d books, expected 1", count)
@@ -266,14 +266,14 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("通配符测试", func(t *testing.T) {
 		// 使用通配符获取所有书籍标题
-		allTitles := doc.Query("store.book[*].title")
+		allTitles := doc.Query("/store/book[*]/title")
 		titleCount := allTitles.Count()
 		if titleCount != 3 {
 			t.Logf("NOTE: Wildcard query found %d titles, expected 3", titleCount)
 		}
 
 		// 使用通配符获取所有价格
-		allPrices := doc.Query("store.book[*].price")
+		allPrices := doc.Query("/store/book[*]/price")
 		priceCount := allPrices.Count()
 		if priceCount != 3 {
 			t.Logf("NOTE: Wildcard price query found %d prices, expected 3", priceCount)
@@ -314,7 +314,7 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("数字数组操作", func(t *testing.T) {
 		// 测试数字数组的各种索引
-		first, err := doc.Query("numbers[0]").Int()
+		first, err := doc.Query("/numbers[0]").Int()
 		if err != nil {
 			t.Errorf("Query numbers[0] failed: %v", err)
 		}
@@ -323,7 +323,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 测试负索引
-		last, err := doc.Query("numbers[-1]").Int()
+		last, err := doc.Query("/numbers[-1]").Int()
 		if err != nil {
 			t.Errorf("Query numbers[-1] failed: %v", err)
 		}
@@ -332,7 +332,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 测试中间切片
-		middle := doc.Query("numbers[3:6]")
+		middle := doc.Query("/numbers[3:6]")
 		middleCount := middle.Count()
 		if middleCount != 3 {
 			t.Logf("NOTE: Middle slice returned %d items, expected 3", middleCount)
@@ -341,7 +341,7 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("复杂嵌套查询", func(t *testing.T) {
 		// 深度嵌套查询
-		item1, err := doc.Query("nested.level1.level2.items[0].name").String()
+		item1, err := doc.Query("/nested/level1/level2/items[0]/name").String()
 		if err != nil {
 			t.Errorf("Query nested item name failed: %v", err)
 		}
@@ -350,7 +350,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 查询活跃项目
-		activeItems := doc.Query("nested.level1.level2.items[?(@.active == true)]")
+		activeItems := doc.Query("/nested/level1/level2/items[?(@.active == true)]")
 		activeCount := activeItems.Count()
 		if activeCount != 2 {
 			t.Logf("NOTE: Active items filter found %d items, expected 2", activeCount)
@@ -359,7 +359,7 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("特殊键和边界情况", func(t *testing.T) {
 		// 测试带点的键名
-		dottedValue, err := doc.Query("dotted.key").String()
+		dottedValue, err := doc.Query("/dotted.key").String()
 		if err != nil {
 			t.Errorf("Query dotted.key failed: %v", err)
 		}
@@ -368,7 +368,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 测试空数组
-		empty := doc.Query("empty")
+		empty := doc.Query("/empty")
 		if !empty.IsArray() {
 			t.Error("empty should be an array")
 		}
@@ -377,7 +377,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 测试 null 值
-		nullVal := doc.Query("null_value")
+		nullVal := doc.Query("/null_value")
 		if !nullVal.IsNull() {
 			t.Error("null_value should be null")
 		}
@@ -385,21 +385,21 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("过滤器高级测试", func(t *testing.T) {
 		// 按类型过滤
-		typeAItems := doc.Query("mixed[?(@.type == 'A')]")
+		typeAItems := doc.Query("/mixed[?(@.type == 'A')]")
 		typeACount := typeAItems.Count()
 		if typeACount != 2 {
 			t.Logf("NOTE: Type A filter found %d items, expected 2", typeACount)
 		}
 
 		// 按值范围过滤
-		highValueItems := doc.Query("mixed[?(@.value > 100)]")
+		highValueItems := doc.Query("/mixed[?(@.value > 100)]")
 		highValueCount := highValueItems.Count()
 		if highValueCount != 2 {
 			t.Logf("NOTE: High value filter found %d items, expected 2", highValueCount)
 		}
 
 		// 复合条件：类型为 A 且值大于 120
-		specificItems := doc.Query("mixed[?(@.type == 'A' && @.value > 120)]")
+		specificItems := doc.Query("/mixed[?(@.type == 'A' && @.value > 120)]")
 		specificCount := specificItems.Count()
 		if specificCount != 1 {
 			t.Logf("NOTE: Specific filter found %d items, expected 1", specificCount)
@@ -475,7 +475,8 @@ func TestXPathRecursiveQueries(t *testing.T) {
 
 	t.Run("递归与过滤结合", func(t *testing.T) {
 		// 递归查找所有经理角色 (如果支持的话)
-		managers := doc.Query("..members[?(@.role == 'Manager')]")
+		// 注意: `..` 后面直接跟 `[` 是一个复杂的递归过滤场景，其行为依赖于解析器的具体实现
+		managers := doc.Query("//members[?(@.role == 'Manager')]")
 		managerCount := managers.Count()
 		if managerCount != 1 {
 			t.Logf("NOTE: Recursive manager filter found %d managers, expected 1", managerCount)

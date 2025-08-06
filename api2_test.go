@@ -23,20 +23,18 @@ func TestResultStringIntFloatBoolExtremeBranches(t *testing.T) {
 	if _, err := r.Float(); err == nil {
 		t.Error("Float string无法转换应报错")
 	}
-	// Bool string无法转换，非空字符串应为true
-	b, err := r.Bool()
-	if err != nil || b != true {
-		t.Errorf("Bool 非空字符串应为true, got b=%v, err=%v", b, err)
+	// Bool string无法转换，应报错
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool on non-boolean string should return an error")
 	}
-	// Bool 空字符串应为false
+	// Bool 空字符串应报错
 	r = &Result{matches: []interface{}{""}}
-	b, err = r.Bool()
-	if err != nil || b != false {
-		t.Errorf("Bool 空字符串应为false, got b=%v, err=%v", b, err)
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool on empty string should return an error")
 	}
 	// Bool 非零数字应为true
 	r = &Result{matches: []interface{}{123}}
-	b, err = r.Bool()
+	b, err := r.Bool()
 	if err != nil || b != true {
 		t.Errorf("Bool 非零数字应为true, got b=%v, err=%v", b, err)
 	}
@@ -95,8 +93,8 @@ func TestResultMustXxxPanicBranches(t *testing.T) {
 		}()
 		_ = r.MustBool()
 	}()
-	if didPanic {
-		t.Error("MustBool 不应panic")
+	if !didPanic {
+		t.Error("MustBool should panic on invalid type")
 	}
 }
 
@@ -118,10 +116,10 @@ func TestDocumentSetDeleteModifierNilBranch(t *testing.T) {
 
 func TestResultIndexAndKeysEdgeCases(t *testing.T) {
 	doc, _ := ParseString(`{"arr":[1,2,3],"obj":{"a":1},"empty":[],"null":null}`)
-	arr := doc.Query("arr")
-	obj := doc.Query("obj")
-	empty := doc.Query("empty")
-	nullv := doc.Query("null")
+	arr := doc.Query("/arr")
+	obj := doc.Query("/obj")
+	empty := doc.Query("/empty")
+	nullv := doc.Query("/null")
 	// 越界
 	if arr.Index(10).Exists() {
 		t.Error("Index 越界应不存在")
@@ -156,73 +154,73 @@ func TestResultIndexAndKeysEdgeCases(t *testing.T) {
 	if empty.Count() != 0 {
 		t.Errorf("empty Count 应为0, got %d", empty.Count())
 	}
-	if nullv.Count() != 1 {
-		t.Errorf("null Count 应为1, got %d", nullv.Count())
+	if nullv.Count() != 0 {
+		t.Errorf("null Count 应为0, got %d", nullv.Count())
 	}
 }
 
 func TestResultRawBytesInterfaceEdgeCases(t *testing.T) {
 	doc, _ := ParseString(`{"a":1,"b":null,"c":[],"d":{}}`)
-	if doc.Query("notfound").Raw() != nil {
+	if doc.Query("/notfound").Raw() != nil {
 		t.Error("notfound Raw 应为nil")
 	}
-	if b, _ := doc.Query("notfound").Bytes(); b != nil {
+	if b, _ := doc.Query("/notfound").Bytes(); b != nil {
 		t.Error("notfound Bytes 应为nil")
 	}
 	// IResult 没有 Interface 方法，相关断言已移除
 	// null
-	if doc.Query("b").Raw() != nil {
+	if doc.Query("/b").Raw() != nil {
 		t.Error("null Raw 应为nil")
 	}
-	if b, _ := doc.Query("b").Bytes(); string(b) != "null" {
+	if b, _ := doc.Query("/b").Bytes(); string(b) != "null" {
 		t.Error("null Bytes 应为null")
 	}
 	// IResult 没有 Interface 方法，相关断言已移除
 	// 空数组
-	if doc.Query("c").Raw() == nil {
+	if doc.Query("/c").Raw() == nil {
 		t.Error("空数组 Raw 不应为nil")
 	}
-	if b, _ := doc.Query("c").Bytes(); string(b) != "[]" {
+	if b, _ := doc.Query("/c").Bytes(); string(b) != "[]" {
 		t.Error("空数组 Bytes 应为[]")
 	}
 	// 空对象
-	if doc.Query("d").Raw() == nil {
+	if doc.Query("/d").Raw() == nil {
 		t.Error("空对象 Raw 不应为nil")
 	}
-	if b, _ := doc.Query("d").Bytes(); string(b) != "{}" {
+	if b, _ := doc.Query("/d").Bytes(); string(b) != "{}" {
 		t.Error("空对象 Bytes 应为{}")
 	}
 }
 
 func TestResultExistsIsNullIsArrayIsObjectEdgeCases(t *testing.T) {
 	doc, _ := ParseString(`{"a":1,"b":null,"c":[],"d":{}}`)
-	if doc.Query("notfound").Exists() {
+	if doc.Query("/notfound").Exists() {
 		t.Error("notfound Exists 应为false")
 	}
-	if doc.Query("b").IsNull() != true {
+	if doc.Query("/b").IsNull() != true {
 		t.Error("b 应为null")
 	}
-	if doc.Query("c").IsArray() != true {
+	if doc.Query("/c").IsArray() != true {
 		t.Error("c 应为数组")
 	}
-	if doc.Query("d").IsObject() != true {
+	if doc.Query("/d").IsObject() != true {
 		t.Error("d 应为对象")
 	}
-	if doc.Query("a").IsNull() {
+	if doc.Query("/a").IsNull() {
 		t.Error("a 不应为null")
 	}
-	if doc.Query("a").IsArray() {
+	if doc.Query("/a").IsArray() {
 		t.Error("a 不应为数组")
 	}
-	if doc.Query("a").IsObject() {
+	if doc.Query("/a").IsObject() {
 		t.Error("a 不应为对象")
 	}
 }
 
 func TestResultForEachMapFilterEdgeCases(t *testing.T) {
 	doc, _ := ParseString(`{"arr":[1,2,3],"empty":[],"a":"test"}`)
-	arr := doc.Query("arr")
-	empty := doc.Query("empty")
+	arr := doc.Query("/arr")
+	empty := doc.Query("/empty")
 	// ForEach break
 	count := 0
 	arr.ForEach(func(i int, v IResult) bool {
@@ -278,7 +276,7 @@ func TestResultForEachMapFilterEdgeCases(t *testing.T) {
 	// Non-array ForEach - 实际上ForEach会对任何结果迭代matches
 	called = false
 	callCount := 0
-	nonArrayResult := doc.Query("a")
+	nonArrayResult := doc.Query("/a")
 	nonArrayResult.ForEach(func(i int, v IResult) bool {
 		called = true
 		callCount++
@@ -318,11 +316,11 @@ func TestDocumentSetDeleteMaterializeEdgeCases(t *testing.T) {
 func TestQueryIsSimplePathBranch(t *testing.T) {
 	doc, _ := ParseString(`{"a":{"b":{"c":1}},"arr":[{"b":2}]}`)
 	// 命中 isSimplePath true
-	if doc.Query("a.b.c").MustInt() != 1 {
+	if doc.Query("/a/b/c").MustInt() != 1 {
 		t.Error("a.b.c 应为1")
 	}
 	// 命中 isSimplePath false
-	if doc.Query("arr[0].b").MustInt() != 2 {
+	if doc.Query("/arr[0]/b").MustInt() != 2 {
 		t.Error("arr[0].b 应为2")
 	}
 	// 错误语法
@@ -350,9 +348,9 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 	if _, err := r.Float(); err == nil {
 		t.Error("Float default分支应报错")
 	}
-	// Bool default分支应返回true且无error
-	if b, err := r.Bool(); err != nil || b != true {
-		t.Errorf("Bool default分支应返回true且无error, got b=%v, err=%v", b, err)
+	// Bool default分支应报错
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool default分支应返回error")
 	}
 	// MustInt/MustInt64/MustFloat应panic，MustString/MustBool不panic
 	didPanic := false
@@ -391,7 +389,7 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 	if !didPanic {
 		t.Error("MustFloat 非法类型应panic")
 	}
-	// MustString/MustBool不panic
+	// MustString不panic
 	func() {
 		defer func() {
 			if recover() != nil {
@@ -400,14 +398,19 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 		}()
 		_ = r.MustString()
 	}()
+	// MustBool应panic
+	didPanic = false
 	func() {
 		defer func() {
 			if recover() != nil {
-				t.Error("MustBool 不应panic")
+				didPanic = true
 			}
 		}()
 		_ = r.MustBool()
 	}()
+	if !didPanic {
+		t.Error("MustBool should panic on invalid type")
+	}
 	// Bytes default分支应返回"{}"且无error
 	if b, err := r.Bytes(); err != nil || string(b) != "{}" {
 		t.Errorf("Bytes default分支应返回'{}'且无error, got b=%q, err=%v", string(b), err)
@@ -433,14 +436,3 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 		t.Error("Filter 非array分支应返回存在（遍历matches）")
 	}
 }
-
-// 由于 Document.raw 字段类型为 []byte，无法直接构造非 []byte 类型以测试 materialize 的 json.Unmarshal 失败分支。
-// 如需测试此分支，需调整 Document 设计或在 raw 支持 interface{} 时再启用。
-// func TestMaterializeUnmarshalError(t *testing.T) {
-//     // 构造特殊数据使 json.Unmarshal 失败
-//     doc := &Document{raw: badMarshaler{}, isValid: true}
-//     err := doc.materialize()
-//     if err == nil {
-//         t.Error("materialize Unmarshal 失败应报错")
-//     }
-// }

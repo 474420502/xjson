@@ -76,7 +76,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("基本路径访问", func(t *testing.T) {
 		// 简单值访问
-		simple, err := doc.Query("root.simple").String()
+		simple, err := doc.Query("/root/simple").String()
 		if err != nil {
 			t.Errorf("Query simple string failed: %v", err)
 		}
@@ -85,7 +85,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 数字访问
-		number, err := doc.Query("root.number").Int()
+		number, err := doc.Query("/root/number").Int()
 		if err != nil {
 			t.Errorf("Query number failed: %v", err)
 		}
@@ -94,7 +94,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 浮点数访问
-		float, err := doc.Query("root.float").Float()
+		float, err := doc.Query("/root/float").Float()
 		if err != nil {
 			t.Errorf("Query float failed: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 布尔值访问
-		boolean, err := doc.Query("root.boolean").Bool()
+		boolean, err := doc.Query("/root/boolean").Bool()
 		if err != nil {
 			t.Errorf("Query boolean failed: %v", err)
 		}
@@ -114,13 +114,13 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("空值和特殊值处理", func(t *testing.T) {
 		// null 值检查
-		nullValue := doc.Query("root.null")
+		nullValue := doc.Query("/root/null")
 		if !nullValue.IsNull() {
 			t.Error("Expected null value")
 		}
 
 		// 空字符串
-		emptyStr, err := doc.Query("root.empty_string").String()
+		emptyStr, err := doc.Query("/root/empty_string").String()
 		if err != nil {
 			t.Errorf("Query empty string failed: %v", err)
 		}
@@ -129,7 +129,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 空数组
-		emptyArray := doc.Query("root.empty_array")
+		emptyArray := doc.Query("/root/empty_array")
 		if !emptyArray.IsArray() {
 			t.Error("Expected empty array")
 		}
@@ -138,7 +138,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 空对象
-		emptyObj := doc.Query("root.empty_object")
+		emptyObj := doc.Query("/root/empty_object")
 		if !emptyObj.IsObject() {
 			t.Error("Expected empty object")
 		}
@@ -146,7 +146,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("深层嵌套访问", func(t *testing.T) {
 		// 深层嵌套值访问
-		deepValue, err := doc.Query("root.nested_structure.level1.level2.level3.deep_value").String()
+		deepValue, err := doc.Query("/root/nested_structure/level1/level2/level3/deep_value").String()
 		if err != nil {
 			t.Errorf("Query deep value failed: %v", err)
 		}
@@ -155,7 +155,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 深层嵌套数组
-		numbers := doc.Query("root.nested_structure.level1.level2.level3.numbers")
+		numbers := doc.Query("/root/nested_structure/level1/level2/level3/numbers")
 		if !numbers.IsArray() {
 			t.Error("Expected numbers array")
 		}
@@ -164,7 +164,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 更深层的嵌套
-		deepNested, err := doc.Query("root.nested_structure.level1.level2.level3.mixed.c.d").String()
+		deepNested, err := doc.Query("/root/nested_structure/level1/level2/level3/mixed/c/d").String()
 		if err != nil {
 			t.Errorf("Query deep nested value failed: %v", err)
 		}
@@ -175,7 +175,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("特殊键名处理", func(t *testing.T) {
 		// 包含连字符的键
-		dashValue, err := doc.Query("root.special_keys.key-with-dashes").String()
+		dashValue, err := doc.Query("/root/special_keys/key-with-dashes").String()
 		if err != nil {
 			t.Errorf("Query dash key failed: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 包含点的键 (可能需要特殊处理)
-		dotValue, err := doc.Query("root.special_keys.key.with.dots").String()
+		dotValue, err := doc.Query("/root/special_keys/key.with.dots").String()
 		if err == nil && dotValue == "dot_value" {
 			t.Logf("Dot key access works: %s", dotValue)
 		} else {
@@ -192,7 +192,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 包含空格的键
-		spaceValue, err := doc.Query("root.special_keys.key with spaces").String()
+		spaceValue, err := doc.Query("/root/special_keys/key with spaces").String()
 		if err == nil && spaceValue == "space_value" {
 			t.Logf("Space key access works: %s", spaceValue)
 		} else {
@@ -200,7 +200,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 以数字开头的键
-		numericValue, err := doc.Query("root.special_keys.123numeric").String()
+		numericValue, err := doc.Query("/root/special_keys/123numeric").String()
 		if err != nil {
 			t.Errorf("Query numeric start key failed: %v", err)
 		}
@@ -209,7 +209,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 下划线键
-		underscoreValue, err := doc.Query("root.special_keys._underscore").String()
+		underscoreValue, err := doc.Query("/root/special_keys/_underscore").String()
 		if err != nil {
 			t.Errorf("Query underscore key failed: %v", err)
 		}
@@ -220,7 +220,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("数组操作详细测试", func(t *testing.T) {
 		// 正向索引
-		firstNumber, err := doc.Query("root.arrays.simple_numbers[0]").Int()
+		firstNumber, err := doc.Query("/root/arrays/simple_numbers[0]").Int()
 		if err != nil {
 			t.Errorf("Query first number failed: %v", err)
 		}
@@ -229,7 +229,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 负向索引
-		lastNumber, err := doc.Query("root.arrays.simple_numbers[-1]").Int()
+		lastNumber, err := doc.Query("/root/arrays/simple_numbers[-1]").Int()
 		if err != nil {
 			t.Errorf("Query last number failed: %v", err)
 		}
@@ -238,7 +238,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 中间索引
-		middleString, err := doc.Query("root.arrays.simple_strings[2]").String()
+		middleString, err := doc.Query("/root/arrays/simple_strings[2]").String()
 		if err != nil {
 			t.Errorf("Query middle string failed: %v", err)
 		}
@@ -247,7 +247,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 对象数组访问
-		firstObjName, err := doc.Query("root.arrays.objects[0].name").String()
+		firstObjName, err := doc.Query("/root/arrays/objects[0]/name").String()
 		if err != nil {
 			t.Errorf("Query first object name failed: %v", err)
 		}
@@ -256,7 +256,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 对象数组布尔值
-		secondObjActive, err := doc.Query("root.arrays.objects[1].active").Bool()
+		secondObjActive, err := doc.Query("/root/arrays/objects[1]/active").Bool()
 		if err != nil {
 			t.Errorf("Query second object active failed: %v", err)
 		}
@@ -266,13 +266,13 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 	})
 
 	t.Run("混合数组处理", func(t *testing.T) {
-		mixedArray := doc.Query("root.mixed_array")
+		mixedArray := doc.Query("/root/mixed_array")
 		if !mixedArray.IsArray() {
 			t.Error("Expected mixed array")
 		}
 
 		// 字符串元素
-		firstElement, err := doc.Query("root.mixed_array[0]").String()
+		firstElement, err := doc.Query("/root/mixed_array[0]").String()
 		if err != nil {
 			t.Errorf("Query first mixed element failed: %v", err)
 		}
@@ -281,7 +281,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 数字元素
-		secondElement, err := doc.Query("root.mixed_array[1]").Int()
+		secondElement, err := doc.Query("/root/mixed_array[1]").Int()
 		if err != nil {
 			t.Errorf("Query second mixed element failed: %v", err)
 		}
@@ -290,7 +290,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 布尔元素
-		thirdElement, err := doc.Query("root.mixed_array[2]").Bool()
+		thirdElement, err := doc.Query("/root/mixed_array[2]").Bool()
 		if err != nil {
 			t.Errorf("Query third mixed element failed: %v", err)
 		}
@@ -299,13 +299,13 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// null 元素
-		fourthElement := doc.Query("root.mixed_array[3]")
+		fourthElement := doc.Query("/root/mixed_array[3]")
 		if !fourthElement.IsNull() {
 			t.Error("Expected null for fourth element")
 		}
 
 		// 嵌套对象元素
-		fifthElementNested, err := doc.Query("root.mixed_array[4].nested").String()
+		fifthElementNested, err := doc.Query("/root/mixed_array[4]/nested").String()
 		if err != nil {
 			t.Errorf("Query fifth element nested failed: %v", err)
 		}
@@ -316,7 +316,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("Unicode和国际化支持", func(t *testing.T) {
 		// 中文字符
-		chinese, err := doc.Query("root.unicode.chinese").String()
+		chinese, err := doc.Query("/root/unicode/chinese").String()
 		if err != nil {
 			t.Errorf("Query Chinese text failed: %v", err)
 		}
@@ -325,7 +325,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 表情符号
-		emoji, err := doc.Query("root.unicode.emoji").String()
+		emoji, err := doc.Query("/root/unicode/emoji").String()
 		if err != nil {
 			t.Errorf("Query emoji failed: %v", err)
 		}
@@ -334,7 +334,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 特殊字符
-		special, err := doc.Query("root.unicode.special").String()
+		special, err := doc.Query("/root/unicode/special").String()
 		if err != nil {
 			t.Errorf("Query special characters failed: %v", err)
 		}
@@ -343,7 +343,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 日文字符
-		japanese, err := doc.Query("root.unicode.japanese").String()
+		japanese, err := doc.Query("/root/unicode/japanese").String()
 		if err != nil {
 			t.Errorf("Query Japanese text failed: %v", err)
 		}
@@ -354,31 +354,31 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("错误情况和边界测试", func(t *testing.T) {
 		// 不存在的路径
-		nonExistent := doc.Query("root.does.not.exist")
+		nonExistent := doc.Query("/root/does/not/exist")
 		if nonExistent.Exists() {
 			t.Error("Non-existent path should not exist")
 		}
 
 		// 数组越界
-		outOfBounds := doc.Query("root.arrays.simple_numbers[100]")
+		outOfBounds := doc.Query("/root/arrays/simple_numbers[100]")
 		if outOfBounds.Exists() {
 			t.Error("Out of bounds access should not exist")
 		}
 
 		// 负向索引越界
-		negativeOutOfBounds := doc.Query("root.arrays.simple_numbers[-100]")
+		negativeOutOfBounds := doc.Query("/root/arrays/simple_numbers[-100]")
 		if negativeOutOfBounds.Exists() {
 			t.Error("Negative out of bounds should not exist")
 		}
 
 		// 在非数组上使用索引
-		wrongIndex := doc.Query("root.simple[0]")
+		wrongIndex := doc.Query("/root/simple[0]")
 		if wrongIndex.Exists() {
 			t.Error("Index on non-array should not exist")
 		}
 
 		// 在非对象上访问属性
-		wrongProperty := doc.Query("root.number.property")
+		wrongProperty := doc.Query("/root/number/property")
 		if wrongProperty.Exists() {
 			t.Error("Property access on non-object should not exist")
 		}
@@ -386,35 +386,35 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 
 	t.Run("类型检查和验证", func(t *testing.T) {
 		// 验证各种类型检查
-		simpleValue := doc.Query("root.simple")
+		simpleValue := doc.Query("/root/simple")
 		_, err := simpleValue.String()
 		if err != nil {
 			t.Error("simple should be convertible to string")
 		}
 
-		numberValue := doc.Query("root.number")
+		numberValue := doc.Query("/root/number")
 		_, err = numberValue.Int()
 		if err != nil {
 			t.Error("number should be convertible to int")
 		}
 
-		arrayValue := doc.Query("root.arrays.simple_numbers")
+		arrayValue := doc.Query("/root/arrays/simple_numbers")
 		if !arrayValue.IsArray() {
 			t.Error("simple_numbers should be array")
 		}
 
-		objectValue := doc.Query("root.nested_structure")
+		objectValue := doc.Query("/root/nested_structure")
 		if !objectValue.IsObject() {
 			t.Error("nested_structure should be object")
 		}
 
-		booleanValue := doc.Query("root.boolean")
+		booleanValue := doc.Query("/root/boolean")
 		_, err = booleanValue.Bool()
 		if err != nil {
 			t.Error("boolean should be convertible to bool")
 		}
 
-		nullValue := doc.Query("root.null")
+		nullValue := doc.Query("/root/null")
 		if !nullValue.IsNull() {
 			t.Error("null should be null")
 		}
@@ -469,7 +469,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 
 	t.Run("多维数组访问", func(t *testing.T) {
 		// 访问矩阵元素 - 使用两步查询
-		firstRow := doc.Query("matrix[0]")
+		firstRow := doc.Query("/matrix[0]")
 		element00, err := firstRow.Index(0).Int()
 		if err != nil {
 			t.Errorf("Query matrix[0][0] failed: %v", err)
@@ -478,7 +478,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 			t.Errorf("Expected 1, got %d", element00)
 		}
 
-		secondRow := doc.Query("matrix[1]")
+		secondRow := doc.Query("/matrix[1]")
 		element12, err := secondRow.Index(2).Int()
 		if err != nil {
 			t.Errorf("Query matrix[1][2] failed: %v", err)
@@ -487,7 +487,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 			t.Errorf("Expected 6, got %d", element12)
 		}
 
-		thirdRow := doc.Query("matrix[2]")
+		thirdRow := doc.Query("/matrix[2]")
 		element22, err := thirdRow.Index(2).Int()
 		if err != nil {
 			t.Errorf("Query matrix[2][2] failed: %v", err)
@@ -497,7 +497,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 		}
 
 		// 验证矩阵结构
-		matrix := doc.Query("matrix")
+		matrix := doc.Query("/matrix")
 		if !matrix.IsArray() {
 			t.Error("matrix should be an array")
 		}
@@ -516,7 +516,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 
 	t.Run("嵌套数组导航", func(t *testing.T) {
 		// 访问第一个数据集的第三个值
-		firstDatasetThirdValue, err := doc.Query("datasets[0].values[2]").Int()
+		firstDatasetThirdValue, err := doc.Query("/datasets[0]/values[2]").Int()
 		if err != nil {
 			t.Errorf("Query nested array value failed: %v", err)
 		}
@@ -525,7 +525,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 		}
 
 		// 访问第二个数据集的大小
-		secondDatasetSize, err := doc.Query("datasets[1].metadata.size").Int()
+		secondDatasetSize, err := doc.Query("/datasets[1]/metadata/size").Int()
 		if err != nil {
 			t.Errorf("Query dataset size failed: %v", err)
 		}
@@ -534,7 +534,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 		}
 
 		// 访问第三个数据集的最后一个值
-		thirdDatasetLastValue, err := doc.Query("datasets[2].values[-1]").Int()
+		thirdDatasetLastValue, err := doc.Query("/datasets[2]/values[-1]").Int()
 		if err != nil {
 			t.Errorf("Query last value failed: %v", err)
 		}
@@ -545,7 +545,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 
 	t.Run("人员分数查询", func(t *testing.T) {
 		// Alice 的第一个分数
-		aliceFirstScore, err := doc.Query("people[0].scores[0]").Int()
+		aliceFirstScore, err := doc.Query("/people[0]/scores[0]").Int()
 		if err != nil {
 			t.Errorf("Query Alice first score failed: %v", err)
 		}
@@ -554,7 +554,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 		}
 
 		// Bob 的名字
-		bobName, err := doc.Query("people[1].name").String()
+		bobName, err := doc.Query("/people[1]/name").String()
 		if err != nil {
 			t.Errorf("Query Bob name failed: %v", err)
 		}
@@ -563,7 +563,7 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 		}
 
 		// Charlie 的最后一个分数
-		charlieLastScore, err := doc.Query("people[2].scores[-1]").Int()
+		charlieLastScore, err := doc.Query("/people[2]/scores[-1]").Int()
 		if err != nil {
 			t.Errorf("Query Charlie last score failed: %v", err)
 		}
@@ -574,35 +574,35 @@ func TestXPathArrayIterationPatterns(t *testing.T) {
 
 	t.Run("数组长度和计数验证", func(t *testing.T) {
 		// 数据集数量
-		datasets := doc.Query("datasets")
+		datasets := doc.Query("/datasets")
 		datasetCount := datasets.Count()
 		if datasetCount != 3 {
 			t.Errorf("Expected 3 datasets, got %d", datasetCount)
 		}
 
 		// 第一个数据集的值数量
-		firstValues := doc.Query("datasets[0].values")
+		firstValues := doc.Query("/datasets[0]/values")
 		firstValueCount := firstValues.Count()
 		if firstValueCount != 5 {
 			t.Errorf("Expected 5 values in first dataset, got %d", firstValueCount)
 		}
 
 		// 矩阵行数
-		matrix := doc.Query("matrix")
+		matrix := doc.Query("/matrix")
 		matrixRows := matrix.Count()
 		if matrixRows != 3 {
 			t.Errorf("Expected 3 matrix rows, got %d", matrixRows)
 		}
 
 		// 第一行列数
-		firstRow := doc.Query("matrix[0]")
+		firstRow := doc.Query("/matrix[0]")
 		firstRowCols := firstRow.Count()
 		if firstRowCols != 3 {
 			t.Errorf("Expected 3 columns in first row, got %d", firstRowCols)
 		}
 
 		// 人员数量
-		people := doc.Query("people")
+		people := doc.Query("/people")
 		peopleCount := people.Count()
 		if peopleCount != 3 {
 			t.Errorf("Expected 3 people, got %d", peopleCount)
