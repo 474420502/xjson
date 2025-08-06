@@ -158,7 +158,7 @@ func (doc *Document) Query(path string) *Result {
 
 	// Handle empty path
 	if path == "" {
-		// Empty path should return the entire document (like root path "/")
+		// Empty path should return the entire document (root)
 		if !doc.isMaterialized {
 			if err := doc.materialize(); err != nil {
 				return &Result{err: err}
@@ -1428,17 +1428,23 @@ func (r *Result) Bool() (bool, error) {
 	case bool:
 		return v, nil
 	case string:
-		// Try to parse as boolean first
-		if b, err := strconv.ParseBool(v); err == nil {
-			return b, nil
+		// Only parse explicit boolean strings "true" and "false"
+		if v == "true" {
+			return true, nil
 		}
-		// If parsing fails, non-empty strings are truthy, empty strings are falsy
-		return v != "", nil
+		if v == "false" {
+			return false, nil
+		}
+		// Any other string should return type mismatch error
+		return false, ErrTypeMismatch
 	case float64:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	case int:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	case int64:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	case map[string]interface{}:
 		// Objects are truthy (non-nil)
@@ -1447,8 +1453,8 @@ func (r *Result) Bool() (bool, error) {
 		// Arrays are truthy (non-empty)
 		return true, nil
 	default:
-		// For any other type (including struct), return true (truthy)
-		return true, nil
+		// For any other type, return type mismatch error
+		return false, ErrTypeMismatch
 	}
 }
 

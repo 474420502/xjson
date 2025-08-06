@@ -256,12 +256,20 @@ func TestMustPanicBehavior(t *testing.T) {
 		result.MustFloat()
 	})
 
-	// Test MustBool - string values have truthy conversion
+	// Test MustBool - string values should now cause panic (type safety)
 	t.Run("must_bool_on_string", func(t *testing.T) {
 		result := doc.Query("string_val")
-		boolVal := result.MustBool()
-		if !boolVal {
-			t.Error("Non-empty strings should be truthy")
+		didPanic := false
+		func() {
+			defer func() {
+				if recover() != nil {
+					didPanic = true
+				}
+			}()
+			result.MustBool()
+		}()
+		if !didPanic {
+			t.Error("MustBool should panic on string values due to type mismatch")
 		}
 	})
 }

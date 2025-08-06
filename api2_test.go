@@ -23,28 +23,26 @@ func TestResultStringIntFloatBoolExtremeBranches(t *testing.T) {
 	if _, err := r.Float(); err == nil {
 		t.Error("Float string无法转换应报错")
 	}
-	// Bool string无法转换，非空字符串应为true
-	b, err := r.Bool()
-	if err != nil || b != true {
-		t.Errorf("Bool 非空字符串应为true, got b=%v, err=%v", b, err)
+	// Bool string无法转换为bool 应报错
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool string无法转换为bool应报错")
 	}
+
 	// Bool 空字符串应为false
 	r = &Result{matches: []interface{}{""}}
-	b, err = r.Bool()
-	if err != nil || b != false {
-		t.Errorf("Bool 空字符串应为false, got b=%v, err=%v", b, err)
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool 空字符串应报错, got err=nil")
 	}
 	// Bool 非零数字应为true
 	r = &Result{matches: []interface{}{123}}
-	b, err = r.Bool()
-	if err != nil || b != true {
-		t.Errorf("Bool 非零数字应为true, got b=%v, err=%v", b, err)
+	if _, err := r.Bool(); err != nil {
+		t.Errorf("Bool 非零数字应为true, got err=%v", err)
 	}
+
 	// Bool 0应为false
 	r = &Result{matches: []interface{}{0}}
-	b, err = r.Bool()
-	if err != nil || b != false {
-		t.Errorf("Bool 0应为false, got b=%v, err=%v", b, err)
+	if _, err := r.Bool(); err != nil {
+		t.Errorf("Bool 0应为false, got err=%v", err)
 	}
 }
 
@@ -95,8 +93,8 @@ func TestResultMustXxxPanicBranches(t *testing.T) {
 		}()
 		_ = r.MustBool()
 	}()
-	if didPanic {
-		t.Error("MustBool 不应panic")
+	if !didPanic {
+		t.Error("MustBool 应该 panic，因为 Bool() 返回了类型匹配错误")
 	}
 }
 
@@ -350,9 +348,9 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 	if _, err := r.Float(); err == nil {
 		t.Error("Float default分支应报错")
 	}
-	// Bool default分支应返回true且无error
-	if b, err := r.Bool(); err != nil || b != true {
-		t.Errorf("Bool default分支应返回true且无error, got b=%v, err=%v", b, err)
+	// Bool default分支应返回类型匹配错误（类型安全）
+	if _, err := r.Bool(); err == nil {
+		t.Error("Bool default分支应返回类型匹配错误")
 	}
 	// MustInt/MustInt64/MustFloat应panic，MustString/MustBool不panic
 	didPanic := false
@@ -391,7 +389,7 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 	if !didPanic {
 		t.Error("MustFloat 非法类型应panic")
 	}
-	// MustString/MustBool不panic
+	// MustString不panic
 	func() {
 		defer func() {
 			if recover() != nil {
@@ -400,10 +398,11 @@ func TestResultTypeExtremeBranches(t *testing.T) {
 		}()
 		_ = r.MustString()
 	}()
+	// MustBool应该panic，因为Bool()返回类型匹配错误
 	func() {
 		defer func() {
-			if recover() != nil {
-				t.Error("MustBool 不应panic")
+			if recover() == nil {
+				t.Error("MustBool 应该panic")
 			}
 		}()
 		_ = r.MustBool()
