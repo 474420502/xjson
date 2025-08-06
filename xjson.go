@@ -72,8 +72,15 @@ type IResult interface {
 	// Array/Object methods
 	Get(path string) IResult
 	Index(i int) IResult
-	Count() int
+	Count() int // Deprecated: Use MatchCount() for match count or Size() for element count
+	MatchCount() int
 	Keys() []string
+
+	// Value access methods
+	Error() error
+	Value() (interface{}, error)
+	Values() []interface{}
+	Size() (int, error)
 
 	// Iteration methods
 	ForEach(func(index int, value IResult) bool)
@@ -151,7 +158,7 @@ func (doc *Document) Query(path string) *Result {
 
 	// Handle empty path
 	if path == "" {
-		// Return the entire document
+		// Empty path should return the entire document (like root path "/")
 		if !doc.isMaterialized {
 			if err := doc.materialize(); err != nil {
 				return &Result{err: err}
@@ -1421,10 +1428,11 @@ func (r *Result) Bool() (bool, error) {
 	case bool:
 		return v, nil
 	case string:
+		// Try to parse as boolean first
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b, nil
 		}
-		// Non-empty strings are truthy
+		// If parsing fails, non-empty strings are truthy, empty strings are falsy
 		return v != "", nil
 	case float64:
 		return v != 0, nil
@@ -1432,8 +1440,14 @@ func (r *Result) Bool() (bool, error) {
 		return v != 0, nil
 	case int64:
 		return v != 0, nil
+	case map[string]interface{}:
+		// Objects are truthy (non-nil)
+		return true, nil
+	case []interface{}:
+		// Arrays are truthy (non-empty)
+		return true, nil
 	default:
-		// Non-nil values are truthy
+		// For any other type (including struct), return true (truthy)
 		return true, nil
 	}
 }
@@ -1516,6 +1530,7 @@ func (r *Result) Index(i int) IResult {
 	}
 }
 
+// Count returns the count of matches or elements
 func (r *Result) Count() int {
 	if r.err != nil {
 		return 0
@@ -1525,12 +1540,19 @@ func (r *Result) Count() int {
 		return 0
 	}
 
-	// If we have exactly one match and it's an array, return the array length
+	// If we have exactly one match
 	if len(r.matches) == 1 {
-		if arr, ok := r.matches[0].([]interface{}); ok {
-			return len(arr)
+		value := r.matches[0]
+		if value == nil {
+			return 1 // null values have count 1 (they exist but are null)
 		}
-		// For any other single match (including null), count is 1
+		if arr, ok := value.([]interface{}); ok {
+			return len(arr) // arrays return their length
+		}
+		if obj, ok := value.(map[string]interface{}); ok {
+			return len(obj) // objects return their field count
+		}
+		// For other single values, return 1 (the match count)
 		return 1
 	}
 
@@ -1722,6 +1744,62 @@ func (r *Result) Bytes() ([]byte, error) {
 	}
 
 	return json.Marshal(r.matches[0])
+}
+
+// Error returns the error that occurred during the query, if any.
+func (r *Result) Error() error {
+	return r.err
+}
+
+// MatchCount returns the number of nodes that matched the query.
+func (r *Result) MatchCount() int {
+	if r.err != nil {
+		return 0
+	}
+	return len(r.matches)
+}
+
+// Value returns the first matched value. It returns an error if there is not
+// exactly one match. This is useful for queries that are expected to return a single node.
+func (r *Result) Value() (interface{}, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if len(r.matches) != 1 {
+		return nil, fmt.Errorf("expected exactly 1 match, but got %d", len(r.matches))
+	}
+	return r.matches[0], nil
+}
+
+// Values returns a slice of all matched values.
+func (r *Result) Values() []interface{} {
+	return r.matches
+}
+
+// Size returns the element count of the single matched node.
+// It is a convenience method that only works if the query resulted in
+// exactly one match which is an array or an object.
+// For arrays, it returns the number of elements.
+// For objects, it returns the number of key-value pairs.
+// For all other types (including null), it returns 1.
+// It returns 0 and an error if there was a query error or not exactly one match.
+func (r *Result) Size() (int, error) {
+	value, err := r.Value() // Reuse our new, robust Value() method
+	if err != nil {
+		return 0, err
+	}
+
+	if value == nil {
+		return 1, nil // A single null value exists. Its size is 1.
+	}
+	if arr, ok := value.([]interface{}); ok {
+		return len(arr), nil
+	}
+	if obj, ok := value.(map[string]interface{}); ok {
+		return len(obj), nil
+	}
+	// Any other single, non-collection value has a size of 1.
+	return 1, nil
 }
 
 // isInvalidSyntax checks for basic syntax errors in query paths

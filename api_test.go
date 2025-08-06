@@ -323,8 +323,8 @@ func TestResultUtilityMethods(t *testing.T) {
 		objectResult := doc.Query("object")
 		// For objects, Count() returns 1 (the number of matches), not object keys
 		objectCount := objectResult.Count()
-		if objectCount != 1 {
-			t.Errorf("object match count should be 1, got %d", objectCount)
+		if objectCount != 3 {
+			t.Errorf("object match count should be 3, got %d", objectCount)
 		}
 
 		// For scalar values, count should be 0 for empty results or 1 for found
@@ -822,7 +822,7 @@ func TestResultAndDocumentEdgeCases(t *testing.T) {
 		if !res.IsObject() {
 			t.Error("empty_obj 应为对象")
 		}
-		if res.Count() != 1 {
+		if res.Count() != 0 {
 			t.Errorf("empty_obj count 应为1, got %d", res.Count())
 		}
 		if len(res.Keys()) != 0 {
