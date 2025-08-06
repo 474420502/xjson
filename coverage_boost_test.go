@@ -88,15 +88,21 @@ func TestCoverageBoost(t *testing.T) {
 
 		result := doc.Query("/")
 		filtered := result.Filter(func(index int, value IResult) bool {
-			return value.MustInt() > 3
+			return value.MustFloat() > 3
 		})
 
 		if filtered.Count() != 2 {
 			t.Errorf("Filter should return 2 items, got %d", filtered.Count())
 		}
-		expected := []interface{}{4.0, 5.0} // Numbers are decoded as float64
+		// The original numbers are float64, so we expect float64 results.
+		expected := []interface{}{4.0, 5.0}
 		if !reflect.DeepEqual(filtered.Raw(), expected) {
-			t.Errorf("Filter result is incorrect. Got %v", filtered.Raw())
+			t.Errorf("Filter result is incorrect. Got %v, expected %v", filtered.Raw(), expected)
+		}
+
+		// Also check that we can convert them back to int
+		if filtered.Index(0).MustInt() != 4 {
+			t.Errorf("Expected first filtered item to be 4, got %d", filtered.Index(0).MustInt())
 		}
 	})
 }

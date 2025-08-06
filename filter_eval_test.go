@@ -51,17 +51,17 @@ func TestFilterEvaluation(t *testing.T) {
 
 	// Now try the actual filter
 	fmt.Println("\n=== Testing actual filter ===")
-	filterResult := doc.Query("/products[?(@.price < 100)]")
+	filterResult := doc.Query("/products[price < 100]")
 	fmt.Printf("Filter result exists: %t, count: %d\n", filterResult.Exists(), filterResult.Count())
 
 	// Try a different filter format that might work
 	fmt.Println("\n=== Testing alternative filters ===")
 
 	// Try with string comparison
-	filterResult2 := doc.Query("/products[?(@.category == 'electronics')]")
+	filterResult2 := doc.Query("/products[category == 'electronics']")
 	fmt.Printf("Category filter result exists: %t, count: %d\n", filterResult2.Exists(), filterResult2.Count())
 
 	// Try with integer comparison
-	filterResult3 := doc.Query("/products[?(@.id == 2)]")
+	filterResult3 := doc.Query("/products[id == 2]")
 	fmt.Printf("ID filter result exists: %t, count: %d\n", filterResult3.Exists(), filterResult3.Count())
 }

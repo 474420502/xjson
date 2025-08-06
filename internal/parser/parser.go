@@ -44,8 +44,6 @@ const (
 	TokenRightBracket
 	TokenLeftParen
 	TokenRightParen
-	TokenQuestion
-	TokenAt
 	TokenNumber
 	TokenString
 	TokenColon
@@ -145,14 +143,6 @@ func (l *Lexer) NextToken() Token {
 	case ')':
 		l.advance()
 		return Token{Type: TokenRightParen, Value: ")", Pos: l.start}
-
-	case '?':
-		l.advance()
-		return Token{Type: TokenQuestion, Value: "?", Pos: l.start}
-
-	case '@':
-		l.advance()
-		return Token{Type: TokenAt, Value: "@", Pos: l.start}
 
 	case ':':
 		l.advance()
@@ -441,26 +431,14 @@ func (p *Parser) parsePredicate() (Predicate, error) {
 			p.nextToken()
 		}
 
-	case TokenQuestion:
-		// Filter expression [?(...)]
+	default:
+		// Filter expression [...]
 		predicate.Type = PredicateExpression
-		p.nextToken()
-
-		if p.current.Type != TokenLeftParen {
-			return predicate, fmt.Errorf("expected '(' after '?' at position %d", p.current.Pos)
-		}
-		p.nextToken()
-
 		expr, err := p.parseExpression()
 		if err != nil {
 			return predicate, err
 		}
 		predicate.Expression = expr
-
-		if p.current.Type != TokenRightParen {
-			return predicate, fmt.Errorf("expected ')' at position %d", p.current.Pos)
-		}
-		p.nextToken()
 	}
 
 	if p.current.Type != TokenRightBracket {
@@ -565,8 +543,8 @@ func (p *Parser) parseComparisonExpression() (Expression, error) {
 // parsePrimaryExpression parses primary expressions (paths, literals, functions)
 func (p *Parser) parsePrimaryExpression() (Expression, error) {
 	switch p.current.Type {
-	case TokenAt:
-		// Path expression starting with @
+	case TokenIdent:
+		// Path expression starting with an identifier
 		return p.parsePathExpression()
 
 	case TokenString:
@@ -706,21 +684,11 @@ func (p *Parser) parsePrimaryExpression() (Expression, error) {
 	return Expression{}, fmt.Errorf("unexpected token %s at position %d", p.current.Value, p.current.Pos)
 }
 
-// parsePathExpression parses a path expression like @.field or @.field.subfield
+// parsePathExpression parses a path expression like field or field.subfield
 func (p *Parser) parsePathExpression() (Expression, error) {
-	if p.current.Type != TokenAt {
-		return Expression{}, fmt.Errorf("expected '@' at position %d", p.current.Pos)
-	}
-	p.nextToken()
-
 	var path []string
-	path = append(path, "@") // Include @ symbol in path
 
 	for {
-		if p.current.Type == TokenDot {
-			p.nextToken()
-		}
-
 		if p.current.Type == TokenIdent {
 			path = append(path, p.current.Value)
 			p.nextToken()
@@ -728,50 +696,8 @@ func (p *Parser) parsePathExpression() (Expression, error) {
 			break
 		}
 
-		// Check for function calls like .includes()
-		if p.current.Type == TokenDot && p.peek.Type == TokenIdent {
-			continue
-		} else if p.current.Type == TokenLeftParen {
-			// This is a function call
-			if len(path) <= 1 { // Account for @ symbol
-				return Expression{}, fmt.Errorf("function call without path")
-			}
-
-			function := path[len(path)-1]
-			path = path[:len(path)-1]
-
-			p.nextToken() // consume '('
-
-			var args []Expression
-			for p.current.Type != TokenRightParen {
-				arg, err := p.parseExpression()
-				if err != nil {
-					return Expression{}, err
-				}
-				args = append(args, arg)
-
-				if p.current.Type == TokenComma {
-					p.nextToken()
-				}
-			}
-
-			if p.current.Type != TokenRightParen {
-				return Expression{}, fmt.Errorf("expected ')' at position %d", p.current.Pos)
-			}
+		if p.current.Type == TokenDot {
 			p.nextToken()
-
-			expr := Expression{
-				Type:     ExpressionFunction,
-				Path:     path,
-				Function: function,
-			}
-
-			// For now, we only support single argument functions
-			if len(args) > 0 {
-				expr.Right = &args[0]
-			}
-
-			return expr, nil
 		} else {
 			break
 		}

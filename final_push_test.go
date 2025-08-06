@@ -13,7 +13,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 		// but we can't easily access internal Result struct fields
 		// Let's just test the null case more thoroughly
 		doc, _ := ParseString(`{"null_val": null}`)
-		str, err := doc.Query("null_val").String()
+		str, err := doc.Query("/null_val").String()
 		if err != nil {
 			t.Errorf("String() on null should succeed, got error: %v", err)
 		}
@@ -26,7 +26,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 	t.Run("Float_RemainingBranches", func(t *testing.T) {
 		// Test null case in Float()
 		doc, _ := ParseString(`{"null_val": null}`)
-		_, err := doc.Query("null_val").Float()
+		_, err := doc.Query("/null_val").Float()
 		if err == nil {
 			t.Error("Float() on null should return error")
 		}
@@ -36,7 +36,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 
 		// Test object case in Float()
 		doc2, _ := ParseString(`{"obj": {"nested": "value"}}`)
-		_, err2 := doc2.Query("obj").Float()
+		_, err2 := doc2.Query("/obj").Float()
 		if err2 == nil {
 			t.Error("Float() on object should return error")
 		}
@@ -49,7 +49,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 	t.Run("Index_BetterCoverage", func(t *testing.T) {
 		// Test Index with valid positive index
 		doc, _ := ParseString(`{"arr": [1, 2, 3, 4, 5]}`)
-		arr := doc.Query("arr")
+		arr := doc.Query("/arr")
 
 		// Test middle index
 		result := arr.Index(2)
@@ -84,7 +84,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 		doc := &Document{
 			err: ErrInvalidJSON,
 		}
-		result := doc.Query("anything")
+		result := doc.Query("/anything")
 		if result.Exists() {
 			t.Error("Query on invalid document should return non-existent result")
 		}
@@ -92,7 +92,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 		// Try a path that is definitely not simple to force complex parsing
 		doc2, _ := ParseString(`{"complex": {"nested": {"deep": [1, 2, 3]}}}`)
 		// This should not be treated as simple path due to [..] notation
-		result2 := doc2.Query("complex.nested.deep[1]")
+		result2 := doc2.Query("/complex/nested/deep[1]")
 		if result2.Exists() {
 			t.Log("Complex path query succeeded")
 		} else {
@@ -104,13 +104,13 @@ func TestFinalPushTo90Percent(t *testing.T) {
 	t.Run("SetDelete_MissingBranches", func(t *testing.T) {
 		// Test Set on invalid document
 		doc := &Document{err: ErrInvalidJSON}
-		err := doc.Set("path", "value")
+		err := doc.Set("/path", "value")
 		if err == nil {
 			t.Error("Set on invalid document should return error")
 		}
 
 		// Test Delete on invalid document
-		err2 := doc.Delete("path")
+		err2 := doc.Delete("/path")
 		if err2 == nil {
 			t.Error("Delete on invalid document should return error")
 		}
@@ -159,7 +159,7 @@ func TestFinalPushTo90Percent(t *testing.T) {
 	t.Run("ForEach_MissingBranches", func(t *testing.T) {
 		// Test ForEach that returns false immediately on array
 		doc, _ := ParseString(`{"arr": [1, 2, 3, 4, 5]}`)
-		arr := doc.Query("arr")
+		arr := doc.Query("/arr")
 
 		count := 0
 		arr.ForEach(func(i int, v IResult) bool {

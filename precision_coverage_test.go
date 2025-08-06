@@ -80,7 +80,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 
 		// 测试单个数组的负数索引 - 这个分支可能没被完全覆盖
 		doc, _ := ParseString(`{"arr": [10, 20, 30, 40, 50]}`)
-		arr := doc.Query("arr")
+		arr := doc.Query("/arr")
 
 		// 测试负数索引
 		negResult := arr.Index(-2)
@@ -94,7 +94,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 
 		// 测试非数组的类型匹配错误
 		doc2, _ := ParseString(`{"str": "not_array"}`)
-		str_result := doc2.Query("str")
+		str_result := doc2.Query("/str")
 		indexed5 := str_result.Index(0)
 		// 这应该返回 ErrTypeMismatch
 		if indexed5.Exists() {
@@ -144,7 +144,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 	t.Run("Query_PreciseBranches", func(t *testing.T) {
 		// 测试错误传播分支
 		doc := &Document{err: ErrInvalidJSON}
-		result := doc.Query("any.path")
+		result := doc.Query("/any/path")
 		if result.Exists() {
 			t.Error("Query on invalid document should not exist")
 		}
@@ -160,7 +160,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 		}`)
 
 		// 测试包含过滤器的复杂查询
-		result2 := doc2.Query("store.books[?(@.price > 15)]")
+		result2 := doc2.Query("/store/books[price > 15]")
 		if result2.Exists() {
 			t.Log("Complex filter query succeeded")
 		} else {
@@ -168,7 +168,7 @@ func TestPrecisionCoverageImprovements(t *testing.T) {
 		}
 
 		// 测试递归查询
-		result3 := doc2.Query("..title")
+		result3 := doc2.Query("//title")
 		if result3.Exists() {
 			t.Log("Recursive query succeeded")
 		} else {

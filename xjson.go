@@ -515,6 +515,27 @@ func (r *Result) MustBool() bool {
 	return b
 }
 
+func (r *Result) Value() (interface{}, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if len(r.matches) == 0 {
+		return nil, ErrNotFound
+	}
+	return r.matches[0], nil
+}
+
+func (r *Result) Values() []interface{} {
+	if r.err != nil {
+		return nil
+	}
+	return r.matches
+}
+
+func (r *Result) Error() error {
+	return r.err
+}
+
 func (r *Result) Get(path string) IResult {
 	if r.err != nil {
 		return &Result{err: r.err}
@@ -615,6 +636,27 @@ func (r *Result) Count() int {
 	return len(r.matches)
 }
 
+func (r *Result) MatchCount() int {
+	return len(r.matches)
+}
+
+func (r *Result) Size() (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if len(r.matches) == 0 {
+		return 0, ErrNotFound
+	}
+	match := r.matches[0]
+	if arr, ok := match.([]interface{}); ok {
+		return len(arr), nil
+	}
+	if obj, ok := match.(map[string]interface{}); ok {
+		return len(obj), nil
+	}
+	return 0, ErrTypeMismatch
+}
+
 func (r *Result) Keys() []string {
 	if r.err != nil || len(r.matches) == 0 {
 		return nil
@@ -702,13 +744,24 @@ func (r *Result) Filter(fn func(index int, value IResult) bool) IResult {
 	if r.err != nil {
 		return &Result{err: r.err}
 	}
-
 	var filtered []interface{}
-	for i, match := range r.matches {
-		result := &Result{
-			doc:     r.doc,
-			matches: []interface{}{match},
+
+	// If a single match is an array, filter its elements.
+	if len(r.matches) == 1 {
+		if arr, ok := r.matches[0].([]interface{}); ok {
+			for i, item := range arr {
+				result := &Result{doc: r.doc, matches: []interface{}{item}}
+				if fn(i, result) {
+					filtered = append(filtered, item)
+				}
+			}
+			return &Result{doc: r.doc, matches: filtered}
 		}
+	}
+
+	// Default behavior: filter the matches themselves.
+	for i, match := range r.matches {
+		result := &Result{doc: r.doc, matches: []interface{}{match}}
 		if fn(i, result) {
 			filtered = append(filtered, match)
 		}

@@ -49,35 +49,35 @@ func TestNewFeatureDemo(t *testing.T) {
 
 	t.Run("JSONPath_filter_expressions", func(t *testing.T) {
 		// Test basic filter expression
-		result := doc.Query("store.book[?(@.price < 10)]")
+		result := doc.Query("/store/book[price < 10]")
 		count := result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 books with price < 10, got %d", count)
 		}
 
 		// Test boolean filter
-		result = doc.Query("store.book[?(@.inStock == true)]")
+		result = doc.Query("/store/book[inStock == true]")
 		count = result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 books in stock, got %d", count)
 		}
 
 		// Test string filter
-		result = doc.Query("store.book[?(@.category == 'fiction')]")
+		result = doc.Query("/store/book[category == 'fiction']")
 		count = result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 fiction books, got %d", count)
 		}
 
 		// Test complex AND filter
-		result = doc.Query("store.book[?(@.price < 10 && @.inStock == true)]")
+		result = doc.Query("/store/book[price < 10 && inStock == true]")
 		count = result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 books with price < 10 AND in stock, got %d", count)
 		}
 
 		// Test complex OR filter
-		result = doc.Query("store.book[?(@.price > 12 || @.category == 'reference')]")
+		result = doc.Query("/store/book[price > 12 || category == 'reference']")
 		count = result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 books with price > 12 OR reference category, got %d", count)
@@ -93,7 +93,7 @@ func TestNewFeatureDemo(t *testing.T) {
 		}
 
 		// Test recursive search with filter
-		result = doc.Query("//employees[?(@.salary > 80000)]")
+		result = doc.Query("//employees[salary > 80000]")
 		count = result.Count()
 		if count != 1 {
 			t.Errorf("Expected 1 employee with salary > 80000, got %d", count)
@@ -109,14 +109,14 @@ func TestNewFeatureDemo(t *testing.T) {
 
 	t.Run("advanced_queries", func(t *testing.T) {
 		// Test array slicing
-		result := doc.Query("store.book[1:3]")
+		result := doc.Query("/store/book[1:3]")
 		count := result.Count()
 		if count != 2 {
 			t.Errorf("Expected 2 books from slice [1:3], got %d", count)
 		}
 
 		// Test negative indexing
-		result = doc.Query("store.book[-1]")
+		result = doc.Query("/store/book[-1]")
 		if !result.Exists() {
 			t.Error("Expected last book to exist")
 		}

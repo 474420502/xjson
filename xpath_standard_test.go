@@ -90,23 +90,12 @@ func TestXPathStandardSyntax(t *testing.T) {
 		}
 	})
 
-	t.Run("对比点号语法与 XPath 语法", func(t *testing.T) {
-		// 点号语法
-		dotResult := x.Query("store.book[0].title")
+	t.Run("XPath 语法", func(t *testing.T) {
 		// XPath 语法
 		xpathResult := x.Query("/store/book[0]/title")
 
-		if dotResult.Exists() != xpathResult.Exists() {
-			t.Errorf("Dot notation and XPath should have same existence result")
-		}
-
-		if dotResult.Exists() {
-			dotStr, _ := dotResult.String()
-			xpathStr, _ := xpathResult.String()
-
-			if dotStr != xpathStr {
-				t.Errorf("Dot notation result '%s' != XPath result '%s'", dotStr, xpathStr)
-			}
+		if !xpathResult.Exists() {
+			t.Errorf("XPath /store/book[0]/title should exist")
 		}
 	})
 }

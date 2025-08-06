@@ -184,7 +184,7 @@ func TestXPathComprehensiveCoverage(t *testing.T) {
 		}
 
 		// 包含点的键 (可能需要特殊处理)
-		dotValue, err := doc.Query("/root/special_keys/key.with.dots").String()
+		dotValue, err := doc.Query(`/root/special_keys/"key.with.dots"`).String()
 		if err == nil && dotValue == "dot_value" {
 			t.Logf("Dot key access works: %s", dotValue)
 		} else {

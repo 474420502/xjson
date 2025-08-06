@@ -218,30 +218,11 @@ func (fe *FilterEvaluator) getExpressionValue(expr parser.Expression, ctx *Evalu
 		return expr.Value, nil
 
 	case parser.ExpressionPath:
-		pathStr := strings.Join(expr.Path, ".")
+		pathStr := strings.Join(expr.Path, "/")
 
-		// Handle @ (current item) and $ (root) contexts
-		if len(expr.Path) > 0 && expr.Path[0] == "@" {
-			// Remove @ prefix and evaluate on current item
-			if len(expr.Path) == 1 {
-				return ctx.CurrentItem, nil
-			}
-			subPath := strings.Join(expr.Path[1:], ".")
-			value, _ := engine.GetValueBySimplePath(ctx.CurrentItem, subPath)
-			return value, nil
-		} else if len(expr.Path) > 0 && expr.Path[0] == "$" {
-			// Remove $ prefix and evaluate on root
-			if len(expr.Path) == 1 {
-				return ctx.RootData, nil
-			}
-			subPath := strings.Join(expr.Path[1:], ".")
-			value, _ := engine.GetValueBySimplePath(ctx.RootData, subPath)
-			return value, nil
-		} else {
-			// Evaluate on current item by default
-			value, _ := engine.GetValueBySimplePath(ctx.CurrentItem, pathStr)
-			return value, nil
-		}
+		// Evaluate on current item by default
+		value, _ := engine.GetValueBySimplePath(ctx.CurrentItem, pathStr)
+		return value, nil
 
 	default:
 		return nil, fmt.Errorf("cannot get value from expression type: %d", expr.Type)

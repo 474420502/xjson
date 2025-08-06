@@ -63,15 +63,8 @@ func TestXPathFeatureSummary(t *testing.T) {
 		t.Logf("   //title 找到 %d 个结果", allTitles.Count())
 		t.Logf("   //price 找到 %d 个结果", allPrices.Count())
 
-		// ✅ 6. 向后兼容点号语法
-		t.Log("✅ 6. 向后兼容点号语法")
-		dotResult := x.Query("store.book[0].title")
-		xpathResult := x.Query("/store/book[0]/title")
-		t.Logf("   点号语法和XPath语法结果一致: %v",
-			dotResult.Exists() == xpathResult.Exists())
-
-		// ✅ 7. 深层嵌套访问
-		t.Log("✅ 7. 深层嵌套访问")
+		// ✅ 6. 深层嵌套访问
+		t.Log("✅ 6. 深层嵌套访问")
 		deepAccess := x.Query("/store/bicycle/color")
 		if deepAccess.Exists() {
 			color, _ := deepAccess.String()

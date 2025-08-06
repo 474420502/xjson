@@ -10,7 +10,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 		// Test all type conversions in String()
 		// Test int type conversion
 		doc2, _ := ParseString(`{"int": 42}`)
-		str, err := doc2.Query("int").String()
+		str, err := doc2.Query("/int").String()
 		if err != nil {
 			t.Errorf("String() on int should succeed, got error: %v", err)
 		}
@@ -20,7 +20,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 
 		// Test int64 type conversion
 		doc3, _ := ParseString(`{"int64": 123456789}`)
-		str3, err3 := doc3.Query("int64").String()
+		str3, err3 := doc3.Query("/int64").String()
 		if err3 != nil {
 			t.Errorf("String() on int64 should succeed, got error: %v", err3)
 		}
@@ -30,7 +30,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 
 		// Test float64 formatting
 		doc4, _ := ParseString(`{"float": 3.14159}`)
-		str4, err4 := doc4.Query("float").String()
+		str4, err4 := doc4.Query("/float").String()
 		if err4 != nil {
 			t.Errorf("String() on float should succeed, got error: %v", err4)
 		}
@@ -40,7 +40,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 
 		// Test bool formatting
 		doc5, _ := ParseString(`{"bool": true}`)
-		str5, err5 := doc5.Query("bool").String()
+		str5, err5 := doc5.Query("/bool").String()
 		if err5 != nil {
 			t.Errorf("String() on bool should succeed, got error: %v", err5)
 		}
@@ -53,7 +53,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 	t.Run("Float_BoolCase", func(t *testing.T) {
 		// Test bool to float conversion (should fail in default case)
 		doc, _ := ParseString(`{"bool": true}`)
-		_, err := doc.Query("bool").Float()
+		_, err := doc.Query("/bool").Float()
 		if err == nil {
 			t.Error("Float() on bool should return error")
 		}
@@ -66,21 +66,21 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 	t.Run("Index_MoreEdgeCases", func(t *testing.T) {
 		// Test index on empty array
 		doc, _ := ParseString(`{"empty_arr": []}`)
-		result := doc.Query("empty_arr").Index(0)
+		result := doc.Query("/empty_arr").Index(0)
 		if result.Exists() {
 			t.Error("Index(0) on empty array should return non-existent result")
 		}
 
 		// Test index on result with error
 		doc2 := &Document{err: ErrInvalidJSON}
-		result2 := doc2.Query("test").Index(0)
+		result2 := doc2.Query("/test").Index(0)
 		if result2.Exists() {
 			t.Error("Index() on error result should return non-existent result")
 		}
 
 		// Test index on result with no matches
 		doc3, _ := ParseString(`{"empty": {}}`)
-		result3 := doc3.Query("non_existent").Index(0)
+		result3 := doc3.Query("/non_existent").Index(0)
 		if result3.Exists() {
 			t.Error("Index() on non-existent should return non-existent result")
 		}
@@ -91,7 +91,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 		// Test Set with modifier error
 		doc, _ := ParseString(`{"a": 1}`)
 		// Try to set a very complex nested path that might cause issues
-		err := doc.Set("a.b.c.d.e.f", "value")
+		err := doc.Set("/a/b/c/d/e/f", "value")
 		if err == nil {
 			t.Log("Set on complex path succeeded")
 		} else {
@@ -99,7 +99,7 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 		}
 
 		// Test Delete with modifier error
-		err2 := doc.Delete("a.b.c.d.e.f")
+		err2 := doc.Delete("/a/b/c/d/e/f")
 		if err2 == nil {
 			t.Log("Delete on complex path succeeded")
 		} else {
@@ -128,13 +128,13 @@ func TestRemainingLowCoverageBranches(t *testing.T) {
 		doc, _ := ParseString(`{"a.b": "dotted_key", "normal": {"nested": "value"}}`)
 
 		// Test query with dotted key - actually this might be treated as nested path
-		result := doc.Query("a.b")
-		t.Logf("Query 'a.b' exists: %v", result.Exists())
+		result := doc.Query(`/a.b`)
+		t.Logf("Query '/a.b' exists: %v", result.Exists())
 		// Don't assert specific behavior as it depends on implementation
 
 		// Test query with array index notation
 		doc2, _ := ParseString(`{"arr": [{"name": "first"}, {"name": "second"}]}`)
-		result2 := doc2.Query("arr[0].name")
+		result2 := doc2.Query("/arr[0]/name")
 		if result2.Exists() {
 			t.Log("Complex array query succeeded")
 		} else {

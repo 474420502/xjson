@@ -10,7 +10,7 @@ func BenchmarkSimpleQuery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = doc.Query("user.name")
+		_ = doc.Query("/user/name")
 	}
 }
 
@@ -26,7 +26,7 @@ func BenchmarkFilterQuery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = doc.Query("products[?(@.price < 100)]")
+		_ = doc.Query("/products[price < 100]")
 	}
 }
 
@@ -44,7 +44,7 @@ func BenchmarkRecursiveQuery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = doc.Query("..price")
+		_ = doc.Query("//price")
 	}
 }
 
@@ -58,7 +58,7 @@ func BenchmarkArraySlice(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = doc.Query("items[1:3]")
+		_ = doc.Query("/items[1:3]")
 	}
 }
 
@@ -68,6 +68,6 @@ func BenchmarkWriteOperation(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		doc, _ := ParseString(jsonData)
-		_ = doc.Set("user.age", 31)
+		_ = doc.Set("/user/age", 31)
 	}
 }

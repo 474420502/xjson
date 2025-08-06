@@ -48,7 +48,7 @@ func TestAdvancedCoverageTargets(t *testing.T) {
 		}
 
 		// Test filter with complex conditions
-		result = doc.Query("/filter_test[?(@.value > 15)]")
+		result = doc.Query("/filter_test[value > 15]")
 		if !result.Exists() || result.Count() != 1 {
 			t.Errorf("Filter should find 1 matching item, found %d", result.Count())
 		}

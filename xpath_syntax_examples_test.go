@@ -117,14 +117,14 @@ func TestXPathSyntaxExamples(t *testing.T) {
 
 	t.Run("递归查询测试", func(t *testing.T) {
 		// 递归查找所有 href 属性 - 使用通用路径
-		hrefs := doc.Query("..href")
+		hrefs := doc.Query("//href")
 		count := hrefs.Count()
 		if count < 3 {
 			t.Logf("NOTE: Recursive query found %d hrefs, expected at least 3", count)
 		}
 
 		// 递归查找所有 text 属性
-		texts := doc.Query("..text")
+		texts := doc.Query("//text")
 		textCount := texts.Count()
 		if textCount < 5 {
 			t.Logf("NOTE: Recursive text query found %d texts, expected at least 5", textCount)
@@ -227,37 +227,37 @@ func TestXPathComplexExamples(t *testing.T) {
 
 	t.Run("过滤查询测试", func(t *testing.T) {
 		// 查找价格小于 10 的书籍
-		cheapBooks := doc.Query("/store/book[?(@.price < 10)]")
+		cheapBooks := doc.Query("/store/book[price < 10]")
 		cheapCount := cheapBooks.Count()
 		if cheapCount != 2 {
-			t.Logf("NOTE: Filter @.price < 10 found %d books, expected 2", cheapCount)
+			t.Logf("NOTE: Filter price < 10 found %d books, expected 2", cheapCount)
 		}
 
 		// 查找有库存的书籍
-		inStockBooks := doc.Query("/store/book[?(@.inStock == true)]")
+		inStockBooks := doc.Query("/store/book[inStock == true]")
 		inStockCount := inStockBooks.Count()
 		if inStockCount != 2 {
-			t.Logf("NOTE: Filter @.inStock == true found %d books, expected 2", inStockCount)
+			t.Logf("NOTE: Filter inStock == true found %d books, expected 2", inStockCount)
 		}
 
 		// 查找虚构类别的书籍
-		fictionBooks := doc.Query("/store/book[?(@.category == 'fiction')]")
+		fictionBooks := doc.Query("/store/book[category == 'fiction']")
 		fictionCount := fictionBooks.Count()
 		if fictionCount != 2 {
-			t.Logf("NOTE: Filter @.category == 'fiction' found %d books, expected 2", fictionCount)
+			t.Logf("NOTE: Filter category == 'fiction' found %d books, expected 2", fictionCount)
 		}
 	})
 
 	t.Run("复合条件过滤", func(t *testing.T) {
 		// 查找价格小于 10 且有库存的书籍
-		cheapInStock := doc.Query("/store/book[?(@.price < 10 && @.inStock == true)]")
+		cheapInStock := doc.Query("/store/book[price < 10 && inStock == true]")
 		cheapInStockCount := cheapInStock.Count()
 		if cheapInStockCount != 2 {
 			t.Logf("NOTE: Complex filter found %d books, expected 2", cheapInStockCount)
 		}
 
 		// 查找价格大于 10 或者没有库存的书籍
-		expensiveOrOutOfStock := doc.Query("/store/book[?(@.price > 10 || @.inStock == false)]")
+		expensiveOrOutOfStock := doc.Query("/store/book[price > 10 || inStock == false]")
 		count := expensiveOrOutOfStock.Count()
 		if count != 1 {
 			t.Logf("NOTE: Complex OR filter found %d books, expected 1", count)
@@ -350,7 +350,7 @@ func TestXPathEdgeCases(t *testing.T) {
 		}
 
 		// 查询活跃项目
-		activeItems := doc.Query("/nested/level1/level2/items[?(@.active == true)]")
+		activeItems := doc.Query("/nested/level1/level2/items[active == true]")
 		activeCount := activeItems.Count()
 		if activeCount != 2 {
 			t.Logf("NOTE: Active items filter found %d items, expected 2", activeCount)
@@ -359,7 +359,7 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("特殊键和边界情况", func(t *testing.T) {
 		// 测试带点的键名
-		dottedValue, err := doc.Query("/dotted.key").String()
+		dottedValue, err := doc.Query(`/dotted.key`).String()
 		if err != nil {
 			t.Errorf("Query dotted.key failed: %v", err)
 		}
@@ -385,21 +385,21 @@ func TestXPathEdgeCases(t *testing.T) {
 
 	t.Run("过滤器高级测试", func(t *testing.T) {
 		// 按类型过滤
-		typeAItems := doc.Query("/mixed[?(@.type == 'A')]")
+		typeAItems := doc.Query("/mixed[type == 'A']")
 		typeACount := typeAItems.Count()
 		if typeACount != 2 {
 			t.Logf("NOTE: Type A filter found %d items, expected 2", typeACount)
 		}
 
 		// 按值范围过滤
-		highValueItems := doc.Query("/mixed[?(@.value > 100)]")
+		highValueItems := doc.Query("/mixed[value > 100]")
 		highValueCount := highValueItems.Count()
 		if highValueCount != 2 {
 			t.Logf("NOTE: High value filter found %d items, expected 2", highValueCount)
 		}
 
 		// 复合条件：类型为 A 且值大于 120
-		specificItems := doc.Query("/mixed[?(@.type == 'A' && @.value > 120)]")
+		specificItems := doc.Query("/mixed[type == 'A' && value > 120]")
 		specificCount := specificItems.Count()
 		if specificCount != 1 {
 			t.Logf("NOTE: Specific filter found %d items, expected 1", specificCount)
@@ -450,7 +450,7 @@ func TestXPathRecursiveQueries(t *testing.T) {
 
 	t.Run("递归查找所有名称", func(t *testing.T) {
 		// 查找所有 name 字段
-		allNames := doc.Query("..name")
+		allNames := doc.Query("//name")
 		nameCount := allNames.Count()
 		if nameCount < 8 {
 			t.Logf("NOTE: Recursive name query found %d names, expected at least 8", nameCount)
@@ -459,14 +459,14 @@ func TestXPathRecursiveQueries(t *testing.T) {
 
 	t.Run("递归查找特定结构", func(t *testing.T) {
 		// 查找所有 members 数组
-		allMembers := doc.Query("..members")
+		allMembers := doc.Query("//members")
 		memberArrayCount := allMembers.Count()
 		if memberArrayCount < 3 {
 			t.Logf("NOTE: Recursive members query found %d member arrays, expected at least 3", memberArrayCount)
 		}
 
 		// 查找所有角色
-		allRoles := doc.Query("..role")
+		allRoles := doc.Query("//role")
 		roleCount := allRoles.Count()
 		if roleCount < 6 {
 			t.Logf("NOTE: Recursive role query found %d roles, expected at least 6", roleCount)
@@ -476,7 +476,7 @@ func TestXPathRecursiveQueries(t *testing.T) {
 	t.Run("递归与过滤结合", func(t *testing.T) {
 		// 递归查找所有经理角色 (如果支持的话)
 		// 注意: `..` 后面直接跟 `[` 是一个复杂的递归过滤场景，其行为依赖于解析器的具体实现
-		managers := doc.Query("//members[?(@.role == 'Manager')]")
+		managers := doc.Query("//members[role == 'Manager']")
 		managerCount := managers.Count()
 		if managerCount != 1 {
 			t.Logf("NOTE: Recursive manager filter found %d managers, expected 1", managerCount)

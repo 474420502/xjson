@@ -66,7 +66,7 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 
 		// 测试在无效文档上的查询（错误传播）
 		doc := &Document{err: ErrInvalidJSON}
-		result := doc.Query("any.path.here")
+		result := doc.Query("/any/path/here")
 		if result.Exists() {
 			t.Error("Query on invalid document should not exist")
 		}
@@ -77,24 +77,24 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 		t.Logf("Empty string query exists: %v", result2.Exists())
 
 		// 测试只有点号的查询
-		result3 := doc2.Query(".")
+		result3 := doc2.Query("/")
 		t.Logf("Dot query exists: %v", result3.Exists())
 
 		// 测试包含特殊字符的查询
 		doc3, _ := ParseString(`{"key-with-dashes": 1, "key_with_underscores": 2, "key with spaces": 3}`)
 
-		result4 := doc3.Query("key-with-dashes")
+		result4 := doc3.Query("/key-with-dashes")
 		if !result4.Exists() {
 			t.Log("Dashed key query failed (may need escaping)")
 		}
 
-		result5 := doc3.Query("key_with_underscores")
+		result5 := doc3.Query("/key_with_underscores")
 		if !result5.Exists() {
 			t.Error("Underscore key query should succeed")
 		}
 
 		// 测试极长的查询路径
-		longPath := "level1.level2.level3.level4.level5.level6.level7.level8.level9.level10"
+		longPath := "/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10"
 		doc4, _ := ParseString(`{"level1":{"level2":{"level3":{"level4":{"level5":{"level6":{"level7":{"level8":{"level9":{"level10":"deep_value"}}}}}}}}}}`)
 		result6 := doc4.Query(longPath)
 		if !result6.Exists() {
@@ -110,19 +110,19 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 		doc, _ := ParseString(`{}`)
 
 		// 测试设置根级别
-		err1 := doc.Set("new_root_key", "root_value")
+		err1 := doc.Set("/new_root_key", "root_value")
 		if err1 != nil {
 			t.Errorf("Set new root key should succeed, got error: %v", err1)
 		}
 
 		// 测试设置嵌套路径（路径不存在）
-		err2 := doc.Set("new.nested.deep.path", "nested_value")
+		err2 := doc.Set("/new/nested/deep/path", "nested_value")
 		if err2 != nil {
 			t.Errorf("Set new nested path should succeed, got error: %v", err2)
 		}
 
 		// 测试删除不存在的路径
-		err3 := doc.Delete("nonexistent.path")
+		err3 := doc.Delete("/nonexistent/path")
 		if err3 == nil {
 			t.Log("Delete nonexistent path succeeded (implementation may allow this)")
 		} else {
@@ -131,13 +131,13 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 
 		// 测试在数组上的操作
 		doc2, _ := ParseString(`{"arr": [1, 2, 3]}`)
-		err4 := doc2.Set("arr", []interface{}{4, 5, 6})
+		err4 := doc2.Set("/arr", []interface{}{4, 5, 6})
 		if err4 != nil {
 			t.Errorf("Set array should succeed, got error: %v", err4)
 		}
 
 		// 测试删除数组
-		err5 := doc2.Delete("arr")
+		err5 := doc2.Delete("/arr")
 		if err5 != nil {
 			t.Errorf("Delete array should succeed, got error: %v", err5)
 		}
@@ -155,13 +155,13 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 		}
 
 		// 测试在多匹配结果上获取共同键
-		sharedResult := multiResult.Get("shared_key")
+		sharedResult := multiResult.Get("/shared_key")
 		if !sharedResult.Exists() {
 			t.Error("Get shared key from multi-match should exist")
 		}
 
 		// 测试获取只在某些匹配中存在的键
-		uniqueResult := multiResult.Get("unique2")
+		uniqueResult := multiResult.Get("/unique2")
 		if !uniqueResult.Exists() {
 			t.Log("Get unique key from multi-match may not exist (depends on implementation)")
 		} else {
@@ -169,7 +169,7 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 		}
 
 		// 测试获取不存在的键
-		missingResult := multiResult.Get("totally_missing")
+		missingResult := multiResult.Get("/totally_missing")
 		if missingResult.Exists() {
 			t.Error("Get missing key should not exist")
 		}
@@ -184,7 +184,7 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 			},
 		}
 
-		mixedGet := mixedResult.Get("key")
+		mixedGet := mixedResult.Get("/key")
 		if !mixedGet.Exists() {
 			t.Error("Get from mixed types should find object matches")
 		}
@@ -282,13 +282,13 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 
 		// 测试各种查询
 		queries := []string{
-			"unicode",
-			"numbers.scientific",
-			"arrays.nested[1][0]",
-			"objects.nested.level1.level2.level3",
-			"edge_cases.null",
-			"edge_cases.false",
-			"nonexistent.path",
+			"/unicode",
+			"/numbers/scientific",
+			"/arrays/nested[1]/[0]",
+			"/objects/nested/level1/level2/level3",
+			"/edge_cases/null",
+			"/edge_cases/false",
+			"/nonexistent/path",
 		}
 
 		for _, query := range queries {
@@ -298,11 +298,11 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 
 		// 测试修改操作
 		modifications := map[string]interface{}{
-			"new_unicode":        "新增中文内容",
-			"numbers.new_number": 999.999,
-			"arrays.new_array":   []interface{}{7, 8, 9},
-			"objects.new_object": map[string]interface{}{"created": true},
-			"deep.new.path.here": "created_deep",
+			"/new_unicode":        "新增中文内容",
+			"/numbers/new_number": 999.999,
+			"/arrays/new_array":   []interface{}{7, 8, 9},
+			"/objects/new_object": map[string]interface{}{"created": true},
+			"/deep/new/path/here": "created_deep",
 		}
 
 		for path, value := range modifications {
@@ -315,7 +315,7 @@ func TestUltimateCoverageChallenge(t *testing.T) {
 		}
 
 		// 验证一些设置
-		if val, _ := doc.Query("new_unicode").String(); val != "新增中文内容" {
+		if val, _ := doc.Query("/new_unicode").String(); val != "新增中文内容" {
 			t.Errorf("Unicode setting failed, got '%s'", val)
 		}
 	})

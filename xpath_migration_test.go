@@ -272,7 +272,7 @@ func TestMigratedFilterExpressions(t *testing.T) {
 	}
 
 	t.Run("price_filter_less_than", func(t *testing.T) {
-		result := doc.Query("/products[?(@.price < 100)]")
+		result := doc.Query("/products[price < 100]")
 		if !result.Exists() {
 			t.Error("Expected results for price < 100 filter")
 			return
@@ -283,7 +283,7 @@ func TestMigratedFilterExpressions(t *testing.T) {
 	})
 
 	t.Run("category_filter_equals", func(t *testing.T) {
-		result := doc.Query("/products[?(@.category == 'electronics')]")
+		result := doc.Query("/products[category == 'electronics']")
 		if !result.Exists() {
 			t.Error("Expected results for category == 'electronics' filter")
 			return
@@ -294,7 +294,7 @@ func TestMigratedFilterExpressions(t *testing.T) {
 	})
 
 	t.Run("boolean_filter", func(t *testing.T) {
-		result := doc.Query("/products[?(@.inStock == true)]")
+		result := doc.Query("/products[inStock == true]")
 		if !result.Exists() {
 			t.Error("Expected results for inStock == true filter")
 			return
@@ -305,7 +305,7 @@ func TestMigratedFilterExpressions(t *testing.T) {
 	})
 
 	t.Run("complex_filter_and", func(t *testing.T) {
-		result := doc.Query("/products[?(@.price < 100 && @.inStock == true)]")
+		result := doc.Query("/products[price < 100 && inStock == true]")
 		if !result.Exists() {
 			t.Error("Expected results for complex AND filter")
 			return
@@ -316,7 +316,7 @@ func TestMigratedFilterExpressions(t *testing.T) {
 	})
 
 	t.Run("complex_filter_or", func(t *testing.T) {
-		result := doc.Query("/products[?(@.price > 500 || @.category == 'education')]")
+		result := doc.Query("/products[price > 500 || category == 'education']")
 		if count := result.Count(); count != 2 {
 			t.Errorf("Expected 2 products matching OR filter, got %d", count)
 		}

@@ -264,7 +264,7 @@ func TestEngineCoverageTargets(t *testing.T) {
 		}
 
 		// Test filter expression
-		result = doc.Query("/store/book[?(@.price > 12)]")
+		result = doc.Query("/store/book[price > 12]")
 		count = result.Count()
 		if count != 1 {
 			t.Errorf("Filter should return 1 book, got %d", count)
