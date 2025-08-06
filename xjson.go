@@ -71,8 +71,15 @@ type IResult interface {
 	// Array/Object methods
 	Get(path string) IResult
 	Index(i int) IResult
-	Count() int
+	Count() int // Deprecated: Use MatchCount() for match count or Size() for element count
+	MatchCount() int
 	Keys() []string
+
+	// Value access methods
+	Error() error
+	Value() (interface{}, error)
+	Values() []interface{}
+	Size() (int, error)
 
 	// Iteration methods
 	ForEach(func(index int, value IResult) bool)
@@ -481,15 +488,19 @@ func (r *Result) Bool() (bool, error) {
 	case bool:
 		return v, nil
 	case string:
-		if b, err := strconv.ParseBool(v); err == nil {
-			return b, nil
+		// Only parse explicit boolean strings "true" and "false"
+		if v == "true" {
+			return true, nil
 		}
 		return false, ErrTypeMismatch
 	case float64:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	case int:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	case int64:
+		// Only non-zero numbers are truthy, zero is falsy
 		return v != 0, nil
 	default:
 		return false, ErrTypeMismatch
@@ -574,6 +585,7 @@ func (r *Result) Index(i int) IResult {
 	}
 }
 
+// Count returns the count of matches or elements
 func (r *Result) Count() int {
 	if r.err != nil {
 		return 0

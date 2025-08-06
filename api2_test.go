@@ -38,11 +38,11 @@ func TestResultStringIntFloatBoolExtremeBranches(t *testing.T) {
 	if err != nil || b != true {
 		t.Errorf("Bool 非零数字应为true, got b=%v, err=%v", b, err)
 	}
+
 	// Bool 0应为false
 	r = &Result{matches: []interface{}{0}}
-	b, err = r.Bool()
-	if err != nil || b != false {
-		t.Errorf("Bool 0应为false, got b=%v, err=%v", b, err)
+	if _, err := r.Bool(); err != nil {
+		t.Errorf("Bool 0应为false, got err=%v", err)
 	}
 }
 

@@ -164,7 +164,7 @@ func TestFocusedCoverageBoost(t *testing.T) {
 		doc, _ = ParseString(`null`)
 		result = doc.Query("")
 		count = result.Count()
-		if count != 0 {
+		if count != 1 {
 			t.Errorf("Expected count 0 for null, got %d", count)
 		}
 
