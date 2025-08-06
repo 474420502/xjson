@@ -205,8 +205,14 @@ func (d *Document) Set(path string, value interface{}) error {
 		d.mod = modifier.NewModifier()
 	}
 
+	p := parser.NewParser(path)
+	query, err := p.Parse()
+	if err != nil {
+		return ErrInvalidPath
+	}
+
 	// Use modifier to set the value
-	return d.mod.Set(&d.materialized, path, value)
+	return d.mod.Set(&d.materialized, query, value)
 }
 
 // Delete removes a value at the specified path, triggering materialization if needed
@@ -229,8 +235,14 @@ func (d *Document) Delete(path string) error {
 		d.mod = modifier.NewModifier()
 	}
 
+	p := parser.NewParser(path)
+	query, err := p.Parse()
+	if err != nil {
+		return ErrInvalidPath
+	}
+
 	// Use modifier to delete the value
-	return d.mod.Delete(&d.materialized, path)
+	return d.mod.Delete(&d.materialized, query)
 }
 
 // Bytes returns the JSON representation as bytes

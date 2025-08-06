@@ -364,6 +364,9 @@ func (p *Parser) parseStep() (Step, error) {
 	} else if p.current.Type == TokenIdent {
 		step.Name = p.current.Value
 		p.nextToken()
+	} else if p.current.Type == TokenString {
+		step.Name = p.current.Value
+		p.nextToken()
 	}
 
 	// Handle predicates
