@@ -142,7 +142,7 @@ func ParseString(data string) (*Document, error) {
 }
 
 // Query executes an XPath-like query on the document
-func (doc *Document) Query(path string) *Result {
+func (doc *Document) Query(xpath string) *Result {
 	doc.mu.RLock()
 	defer doc.mu.RUnlock()
 
@@ -159,12 +159,12 @@ func (doc *Document) Query(path string) *Result {
 	}
 
 	// Handle special root cases
-	if path == "" || path == "/" || path == "$" {
+	if xpath == "" || xpath == "/" || xpath == "$" {
 		return &Result{doc: doc, matches: []interface{}{doc.materialized}}
 	}
 
 	// Delegate all parsing to the parser
-	p := parser.NewParser(path)
+	p := parser.NewParser(xpath)
 	query, err := p.Parse()
 	if err != nil {
 		// Return empty result for invalid paths instead of an error
@@ -791,12 +791,12 @@ func (r *Result) IsArray() bool {
 		return false
 	}
 
-	// If we have multiple matches, this is an array result
+	// A result is considered an array if it has multiple matches,
+	// OR if it has one match that is itself an array.
 	if len(r.matches) > 1 {
 		return true
 	}
 
-	// If we have exactly one match, check if it's an array type
 	if len(r.matches) == 1 {
 		_, ok := r.matches[0].([]interface{})
 		return ok
@@ -837,12 +837,10 @@ func (r *Result) Raw() interface{} {
 	if r.err != nil || len(r.matches) == 0 {
 		return nil
 	}
-	// For null values, return nil (which is correct Go representation)
-	value := r.matches[0]
-	if value == nil {
-		return nil
+	if len(r.matches) == 1 {
+		return r.matches[0]
 	}
-	return value
+	return r.matches
 }
 
 func (r *Result) Bytes() ([]byte, error) {
@@ -853,5 +851,8 @@ func (r *Result) Bytes() ([]byte, error) {
 		return nil, ErrNotFound
 	}
 
-	return json.Marshal(r.matches[0])
+	if len(r.matches) == 1 {
+		return json.Marshal(r.matches[0])
+	}
+	return json.Marshal(r.matches)
 }

@@ -56,9 +56,10 @@ const (
 	TokenLE  // <=
 	TokenGT  // >
 	TokenGE  // >=
-	TokenAnd // &&
-	TokenOr  // ||
+	TokenAnd // and
+	TokenOr  // or
 	TokenNot // !
+	TokenAt  // @
 
 	// Special functions
 	TokenExists
@@ -123,6 +124,10 @@ func (l *Lexer) NextToken() Token {
 		}
 		l.advance()
 		return Token{Type: TokenSlash, Value: "/", Pos: l.start}
+
+	case '@':
+		l.advance()
+		return Token{Type: TokenAt, Value: "@", Pos: l.start}
 
 	case '*':
 		l.advance()
@@ -192,19 +197,6 @@ func (l *Lexer) NextToken() Token {
 		l.advance()
 		return Token{Type: TokenGT, Value: ">", Pos: l.start}
 
-	case '&':
-		if l.peek() == '&' {
-			l.advance()
-			l.advance()
-			return Token{Type: TokenAnd, Value: "&&", Pos: l.start}
-		}
-
-	case '|':
-		if l.peek() == '|' {
-			l.advance()
-			l.advance()
-			return Token{Type: TokenOr, Value: "||", Pos: l.start}
-		}
 	}
 
 	if isDigit(ch) || ch == '-' {
@@ -272,13 +264,14 @@ const (
 
 // Expression represents a filter expression
 type Expression struct {
-	Type     ExpressionType
-	Left     *Expression
-	Right    *Expression
-	Operator string
-	Path     []string
-	Value    interface{}
-	Function string
+	Type        ExpressionType
+	Left        *Expression
+	Right       *Expression
+	Operator    string
+	Path        []string
+	Value       interface{}
+	Function    string
+	IsAttribute bool // True if the path refers to an attribute
 }
 
 // ExpressionType represents the type of expression
@@ -343,8 +336,6 @@ func (p *Parser) parseStep() (Step, error) {
 		step.Axis = AxisChild
 		p.nextToken()
 	} else if p.current.Type == TokenDot {
-		// Deprecation warning for dot notation
-		fmt.Println("Warning: Dot notation for path separation is deprecated and will be removed in a future version. Please use '/' as the child separator.")
 		step.Type = StepChild
 		step.Axis = AxisChild
 		p.nextToken()
@@ -389,65 +380,56 @@ func (p *Parser) parsePredicate() (Predicate, error) {
 	}
 	p.nextToken()
 
-	// Handle different predicate types
-	switch p.current.Type {
-	case TokenStar:
-		predicate.Type = PredicateWildcard
-		p.nextToken()
-
-	case TokenNumber:
-		// Array index or slice
-		start, err := strconv.Atoi(p.current.Value)
-		if err != nil {
-			return predicate, fmt.Errorf("invalid number: %s", p.current.Value)
+	// Handle script expression `[?(...)]`
+	if p.current.Type == TokenIdent && p.current.Value == "?" {
+		p.nextToken() // Consume '?'
+		if p.current.Type != TokenLeftParen {
+			return predicate, fmt.Errorf("expected '(' after '?' in predicate at position %d", p.current.Pos)
 		}
-		p.nextToken()
+		p.nextToken() // Consume '('
 
-		if p.current.Type == TokenColon {
-			// Slice
-			predicate.Type = PredicateSlice
-			predicate.Start = start
-			p.nextToken()
-
-			if p.current.Type == TokenNumber {
-				end, err := strconv.Atoi(p.current.Value)
-				if err != nil {
-					return predicate, fmt.Errorf("invalid number: %s", p.current.Value)
-				}
-				predicate.End = end
-				p.nextToken()
-			} else {
-				predicate.End = -1 // Open-ended slice
-			}
-		} else {
-			// Index
-			predicate.Type = PredicateIndex
-			predicate.Index = start
-		}
-
-	case TokenColon:
-		// Slice starting from beginning [:n]
-		predicate.Type = PredicateSlice
-		predicate.Start = 0
-		p.nextToken()
-
-		if p.current.Type == TokenNumber {
-			end, err := strconv.Atoi(p.current.Value)
-			if err != nil {
-				return predicate, fmt.Errorf("invalid number: %s", p.current.Value)
-			}
-			predicate.End = end
-			p.nextToken()
-		}
-
-	default:
-		// Filter expression
 		predicate.Type = PredicateExpression
 		expr, err := p.parseExpression()
 		if err != nil {
 			return predicate, err
 		}
 		predicate.Expression = expr
+
+		if p.current.Type != TokenRightParen {
+			return predicate, fmt.Errorf("expected ')' at position %d", p.current.Pos)
+		}
+		p.nextToken() // Consume ')'
+
+	} else {
+		// Handle different predicate types
+		switch p.current.Type {
+		case TokenStar:
+			// This case might be invalid in standard XPath, but we keep it for now.
+			predicate.Type = PredicateWildcard
+			p.nextToken()
+
+		case TokenNumber:
+			// In XPath, a number inside a predicate is a positional index.
+			// e.g., /books[1]
+			start, err := strconv.Atoi(p.current.Value)
+			if err != nil {
+				return predicate, fmt.Errorf("invalid number in predicate: %s", p.current.Value)
+			}
+			p.nextToken()
+
+			// Unlike JSONPath, XPath slices are not standard. We'll treat numbers as indices.
+			predicate.Type = PredicateIndex
+			predicate.Index = start // XPath is 1-based, engine needs to adjust
+
+		default:
+			// This is now the standard path for XPath expressions like [@attribute='value']
+			predicate.Type = PredicateExpression
+			expr, err := p.parseExpression()
+			if err != nil {
+				return predicate, err
+			}
+			predicate.Expression = expr
+		}
 	}
 
 	if p.current.Type != TokenRightBracket {
@@ -548,7 +530,7 @@ func (p *Parser) parseComparisonExpression() (*Expression, error) {
 // parsePrimaryExpression parses primary expressions (paths, literals, functions)
 func (p *Parser) parsePrimaryExpression() (*Expression, error) {
 	switch p.current.Type {
-	case TokenIdent, '@':
+	case TokenIdent, TokenAt:
 		// Path expression starting with an identifier or '@'
 		return p.parsePathExpression()
 
@@ -689,38 +671,47 @@ func (p *Parser) parsePrimaryExpression() (*Expression, error) {
 	return nil, fmt.Errorf("unexpected token %s at position %d", p.current.Value, p.current.Pos)
 }
 
-// parsePathExpression parses a path expression like @.field or field.subfield
+// parsePathExpression parses a path expression.
+// In XPath filters, paths can start with an attribute signifier '@' or be a relative path.
 func (p *Parser) parsePathExpression() (*Expression, error) {
 	var path []string
+	isAttribute := false
 
-	// Handle JSONPath current object operator '@'
-	if p.current.Value == "@" {
-		path = append(path, "@")
-		p.nextToken()
-		if p.current.Type == TokenDot {
-			p.nextToken() // consume dot after @
+	if p.current.Type == TokenAt {
+		isAttribute = true
+		p.nextToken() // Consume '@'
+		if p.current.Type != TokenIdent {
+			return nil, fmt.Errorf("expected attribute name after '@' at position %d", p.current.Pos)
 		}
+		path = append(path, p.current.Value)
+		p.nextToken() // Consume attribute name
+	} else if p.current.Type == TokenIdent {
+		// This is a relative path from the context node.
+		path = append(path, p.current.Value)
+		p.nextToken()
+	} else {
+		return nil, fmt.Errorf("expected identifier or attribute at position %d", p.current.Pos)
 	}
 
-	for {
+	// Chain path segments with '/' or '.'
+	for p.current.Type == TokenSlash || p.current.Type == TokenDot {
+		p.nextToken()
+
 		if p.current.Type == TokenIdent {
 			path = append(path, p.current.Value)
 			p.nextToken()
 		} else {
-			break
-		}
-
-		if p.current.Type == TokenDot {
-			p.nextToken()
-		} else {
-			break
+			return nil, fmt.Errorf("expected identifier after separator at position %d", p.current.Pos)
 		}
 	}
 
-	return &Expression{
-		Type: ExpressionPath,
-		Path: path,
-	}, nil
+	expr := &Expression{
+		Type:        ExpressionPath,
+		Path:        path,
+		IsAttribute: isAttribute,
+	}
+
+	return expr, nil
 }
 
 // Helper methods for the lexer
@@ -830,6 +821,10 @@ func (l *Lexer) readIdentifier() Token {
 		tokenType = TokenTrue
 	case "false":
 		tokenType = TokenFalse
+	case "and":
+		tokenType = TokenAnd
+	case "or":
+		tokenType = TokenOr
 	}
 
 	return Token{

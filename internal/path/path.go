@@ -1,7 +1,13 @@
 // Package path provides utilities for working with JSON paths.
 package path
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+// ErrNotFound is returned when a path does not exist.
+var ErrNotFound = errors.New("path not found")
 
 // GetValueBySimplePath retrieves a value from a materialized structure using a simple path.
 func GetValueBySimplePath(data interface{}, path string) (interface{}, bool) {

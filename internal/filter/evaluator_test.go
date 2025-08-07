@@ -6,58 +6,7 @@ import (
 	"github.com/474420502/xjson/internal/parser"
 )
 
-func TestEvaluateLiteralExpression(t *testing.T) {
-	fe := NewFilterEvaluator()
-	cases := []struct {
-		val    interface{}
-		expect bool
-	}{
-		{true, true},
-		{false, false},
-		{1.0, true},
-		{0.0, false},
-		{"", false},
-		{"abc", true},
-	}
-	for _, c := range cases {
-		expr := &parser.Expression{Type: parser.ExpressionLiteral, Value: c.val}
-		got, _ := fe.evaluateLiteralExpression(expr, nil)
-		if got != c.expect {
-			t.Errorf("Literal %v: expect %v, got %v", c.val, c.expect, got)
-		}
-	}
-}
-
-func TestEvaluateBinaryExpression(t *testing.T) {
-	fe := NewFilterEvaluator()
-	ctx := &EvaluationContext{CurrentItem: map[string]interface{}{"x": 2}}
-	left := &parser.Expression{Type: parser.ExpressionPath, Path: []string{"x"}}
-	right := &parser.Expression{Type: parser.ExpressionLiteral, Value: 2}
-	expr := &parser.Expression{Type: parser.ExpressionBinary, Operator: "==", Left: left, Right: right}
-	ok, err := fe.evaluateBinaryExpression(expr, ctx)
-	if err != nil || !ok {
-		t.Errorf("Binary == failed: %v, %v", ok, err)
-	}
-}
-
-func TestEvaluateFunctionExpression_exists(t *testing.T) {
-	fe := NewFilterEvaluator()
-	ctx := &EvaluationContext{CurrentItem: map[string]interface{}{"foo": 1}}
-	expr := &parser.Expression{
-		Type:     parser.ExpressionFunction,
-		Function: "exists",
-		Left: &parser.Expression{
-			Type: parser.ExpressionPath,
-			Path: []string{"foo"},
-		},
-	}
-	ok, err := fe.evaluateFunctionExpression(expr, ctx)
-	if err != nil || !ok {
-		t.Errorf("exists() should be true, got %v, %v", ok, err)
-	}
-}
-
-// Test EvaluateExpression function (0% coverage)
+// Test EvaluateExpression function
 func TestEvaluateExpression(t *testing.T) {
 	fe := NewFilterEvaluator()
 
@@ -69,39 +18,61 @@ func TestEvaluateExpression(t *testing.T) {
 		hasError bool
 	}{
 		{
-			name: "literal true",
-			expr: &parser.Expression{
-				Type:  parser.ExpressionLiteral,
-				Value: true,
-			},
+			name:     "literal true",
+			expr:     &parser.Expression{Type: parser.ExpressionLiteral, Value: true},
 			ctx:      &EvaluationContext{},
 			expected: true,
 		},
 		{
-			name: "literal false",
-			expr: &parser.Expression{
-				Type:  parser.ExpressionLiteral,
-				Value: false,
-			},
+			name:     "literal number zero",
+			expr:     &parser.Expression{Type: parser.ExpressionLiteral, Value: 0.0},
 			ctx:      &EvaluationContext{},
 			expected: false,
 		},
 		{
-			name: "binary expression",
+			name:     "literal non-zero",
+			expr:     &parser.Expression{Type: parser.ExpressionLiteral, Value: 42},
+			ctx:      &EvaluationContext{},
+			expected: true,
+		},
+		{
+			name: "path exists",
+			expr: &parser.Expression{Type: parser.ExpressionPath, Path: []string{"name"}},
+			ctx: &EvaluationContext{
+				ContextNode: map[string]interface{}{"name": "test"},
+			},
+			expected: true,
+		},
+		{
+			name: "path doesn't exist",
+			expr: &parser.Expression{Type: parser.ExpressionPath, Path: []string{"missing"}},
+			ctx: &EvaluationContext{
+				ContextNode: map[string]interface{}{"name": "test"},
+			},
+			expected: false,
+		},
+		{
+			name: "binary expression equals",
 			expr: &parser.Expression{
 				Type:     parser.ExpressionBinary,
 				Operator: "==",
-				Left: &parser.Expression{
-					Type:  parser.ExpressionLiteral,
-					Value: 1,
-				},
-				Right: &parser.Expression{
-					Type:  parser.ExpressionLiteral,
-					Value: 1,
-				},
+				Left:     &parser.Expression{Type: parser.ExpressionPath, Path: []string{"price"}},
+				Right:    &parser.Expression{Type: parser.ExpressionLiteral, Value: 20},
+			},
+			ctx: &EvaluationContext{
+				ContextNode: map[string]interface{}{"price": 20},
+			},
+			expected: true,
+		},
+		{
+			name: "unary NOT true",
+			expr: &parser.Expression{
+				Type:     parser.ExpressionUnary,
+				Operator: "!",
+				Left:     &parser.Expression{Type: parser.ExpressionLiteral, Value: true},
 			},
 			ctx:      &EvaluationContext{},
-			expected: true,
+			expected: false,
 		},
 	}
 
@@ -128,128 +99,31 @@ func TestEvaluateExpression(t *testing.T) {
 	}
 }
 
-// Test evaluatePathExpression function (0% coverage)
-func TestEvaluatePathExpression(t *testing.T) {
+func TestFunctionExpressions(t *testing.T) {
 	fe := NewFilterEvaluator()
+	t.Run("position() function", func(t *testing.T) {
+		expr := &parser.Expression{Type: parser.ExpressionFunction, Function: "position"}
+		ctx := &EvaluationContext{Position: 3, Size: 5}
+		val, err := fe.getExpressionValue(expr, ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val.(float64) != 3 {
+			t.Errorf("expected position() to be 3, got %v", val)
+		}
+	})
 
-	tests := []struct {
-		name     string
-		expr     *parser.Expression
-		ctx      *EvaluationContext
-		expected bool
-		hasError bool
-	}{
-		{
-			name: "path exists",
-			expr: &parser.Expression{
-				Type: parser.ExpressionPath,
-				Path: []string{"name"},
-			},
-			ctx: &EvaluationContext{
-				CurrentItem: map[string]interface{}{
-					"name": "test",
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "path doesn't exist",
-			expr: &parser.Expression{
-				Type: parser.ExpressionPath,
-				Path: []string{"missing"},
-			},
-			ctx: &EvaluationContext{
-				CurrentItem: map[string]interface{}{
-					"name": "test",
-				},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := fe.evaluatePathExpression(tt.expr, tt.ctx)
-
-			if tt.hasError {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %t, got %t", tt.expected, result)
-			}
-		})
-	}
-}
-
-// Test evaluateUnaryExpression function (0% coverage)
-func TestEvaluateUnaryExpression(t *testing.T) {
-	fe := NewFilterEvaluator()
-
-	tests := []struct {
-		name     string
-		expr     *parser.Expression
-		ctx      *EvaluationContext
-		expected bool
-		hasError bool
-	}{
-		{
-			name: "NOT true",
-			expr: &parser.Expression{
-				Type:     parser.ExpressionUnary,
-				Operator: "!",
-				Left: &parser.Expression{
-					Type:  parser.ExpressionLiteral,
-					Value: true,
-				},
-			},
-			ctx:      &EvaluationContext{},
-			expected: false,
-		},
-		{
-			name: "NOT false",
-			expr: &parser.Expression{
-				Type:     parser.ExpressionUnary,
-				Operator: "!",
-				Left: &parser.Expression{
-					Type:  parser.ExpressionLiteral,
-					Value: false,
-				},
-			},
-			ctx:      &EvaluationContext{},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := fe.evaluateUnaryExpression(tt.expr, tt.ctx)
-
-			if tt.hasError {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %t, got %t", tt.expected, result)
-			}
-		})
-	}
+	t.Run("last() function", func(t *testing.T) {
+		expr := &parser.Expression{Type: parser.ExpressionFunction, Function: "last"}
+		ctx := &EvaluationContext{Position: 3, Size: 5}
+		val, err := fe.getExpressionValue(expr, ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if val.(float64) != 5 {
+			t.Errorf("expected last() to be 5, got %v", val)
+		}
+	})
 }
 
 // Test more comparison operators
@@ -282,7 +156,7 @@ func TestComparisons(t *testing.T) {
 				Right:    right,
 			}
 
-			result, err := fe.evaluateBinaryExpression(expr, &EvaluationContext{})
+			result, err := fe.EvaluateExpression(expr, &EvaluationContext{})
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return

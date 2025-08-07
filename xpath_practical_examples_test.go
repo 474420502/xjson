@@ -380,19 +380,19 @@ func TestXPathAdvancedNavigationExamples(t *testing.T) {
 
 	t.Run("条件查找和类型检查", func(t *testing.T) {
 		// 检查章节是否存在
-		intro := doc.Query("/document/sections[0]")
+		intro := doc.Query("/document/sections[@id='intro']")
 		if !intro.Exists() {
 			t.Error("Introduction section should exist")
 		}
 
 		// 检查子章节是否是对象
-		subsection := doc.Query("/document/sections[0]/subsections[0]")
+		subsection := doc.Query("/document/sections[@id='intro']/subsections[0]")
 		if !subsection.IsObject() {
 			t.Error("Subsection should be an object")
 		}
 
 		// 检查示例数组
-		examples := doc.Query("/document/sections[0]/subsections[0]/examples")
+		examples := doc.Query("/document/sections[@id='intro']/subsections[0]/examples")
 		if !examples.IsArray() {
 			t.Error("Examples should be an array")
 		}
@@ -611,7 +611,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 
 	t.Run("第二个产品的对比", func(t *testing.T) {
 		// 第二个产品的库存状态
-		secondProductStock, err := doc.Query("/data/results[1]/availability/inStock").Bool()
+		secondProductStock, err := doc.Query("/data/results[@id='prod-002']/availability/inStock").Bool()
 		if err != nil {
 			t.Errorf("Query second product stock failed: %v", err)
 		}
@@ -620,14 +620,14 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 第二个产品的评论数量（应该为0）
-		secondReviews := doc.Query("/data/results[1]/reviews")
+		secondReviews := doc.Query("/data/results[@id='prod-002']/reviews")
 		secondReviewCount := secondReviews.Count()
 		if secondReviewCount != 0 {
 			t.Errorf("Expected 0 reviews for second product, got %d", secondReviewCount)
 		}
 
 		// 第二个产品的折扣
-		discount, err := doc.Query("/data/results[1]/price/discount").Float()
+		discount, err := doc.Query("/data/results[@id='prod-002']/price/discount").Float()
 		if err != nil {
 			t.Errorf("Query discount failed: %v", err)
 		}

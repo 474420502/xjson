@@ -28,7 +28,6 @@ func NewEngine() *Engine {
 // ExecuteOnMaterialized executes a query on materialized Go structures
 func (e *Engine) ExecuteOnMaterialized(data interface{}, query *parser.Query) ([]Match, error) {
 	if query == nil || len(query.Steps) == 0 {
-		// If there's no query, we match the entire document.
 		return []Match{{Value: data}}, nil
 	}
 	context := &MaterializedContext{data: data}
@@ -57,52 +56,60 @@ func (e *Engine) executeStepsOnMaterialized(ctx *MaterializedContext, steps []pa
 
 	step := steps[0]
 	remaining := steps[1:]
-	var nextItems []interface{}
+	var stepResults []interface{}
 
-	for _, current := range currentItems {
-		var stepResults []interface{}
-		switch step.Type {
-		case parser.StepChild:
-			stepResults = e.executeChildStepOnMaterialized(ctx, step, current)
-		case parser.StepDescendant:
-			stepResults = e.executeDescendantStepOnMaterialized(ctx, step, current)
-		case parser.StepWildcard:
-			stepResults = e.executeWildcardStepOnMaterialized(ctx, step, current)
-		default:
-			return nil, fmt.Errorf("unsupported step type: %v", step.Type)
+	if step.Type == parser.StepDescendant {
+		stepResults = e.executeDescendantStepOnMaterialized(ctx, step, currentItems[0])
+	} else {
+		for _, current := range currentItems {
+			var items []interface{}
+			switch step.Type {
+			case parser.StepChild:
+				items = e.executeChildStepOnMaterialized(ctx, step, current)
+			case parser.StepWildcard:
+				items = e.executeWildcardStepOnMaterialized(ctx, step, current)
+			default:
+				return nil, fmt.Errorf("unsupported step type: %v", step.Type)
+			}
+			stepResults = append(stepResults, items...)
 		}
-		nextItems = append(nextItems, stepResults...)
 	}
 
-	return e.executeStepsOnMaterialized(ctx, remaining, nextItems)
+	if len(step.Predicates) > 0 {
+		stepResults = e.applyPredicates(ctx, stepResults, step.Predicates)
+	}
+
+	return e.executeStepsOnMaterialized(ctx, remaining, stepResults)
 }
 
 // executeChildStepOnMaterialized executes a child access step
 func (e *Engine) executeChildStepOnMaterialized(ctx *MaterializedContext, step parser.Step, current interface{}) []interface{} {
-	var results []interface{}
 	if obj, ok := current.(map[string]interface{}); ok {
 		if val, exists := obj[step.Name]; exists {
-			results = append(results, val)
+			if arr, isArr := val.([]interface{}); isArr {
+				return arr
+			}
+			return []interface{}{val}
 		}
-	} else if step.Name == "" { // Allows predicates on the root if it's an array
-		results = append(results, current)
+	} else if arr, ok := current.([]interface{}); ok {
+		return arr
 	}
-
-	if len(step.Predicates) > 0 {
-		return e.applyPredicates(ctx, results, step.Predicates)
-	}
-	return results
+	return nil
 }
 
 // executeDescendantStepOnMaterialized executes a descendant step (e.g., //)
 func (e *Engine) executeDescendantStepOnMaterialized(ctx *MaterializedContext, step parser.Step, current interface{}) []interface{} {
 	var matches []interface{}
-	var search func(interface{})
+	var search func(node interface{})
 
 	search = func(node interface{}) {
 		if m, ok := node.(map[string]interface{}); ok {
 			if val, exists := m[step.Name]; exists {
-				matches = append(matches, val)
+				if arr, isArr := val.([]interface{}); isArr {
+					matches = append(matches, arr...)
+				} else {
+					matches = append(matches, val)
+				}
 			}
 			for _, v := range m {
 				search(v)
@@ -131,55 +138,34 @@ func (e *Engine) executeWildcardStepOnMaterialized(ctx *MaterializedContext, ste
 	return results
 }
 
-// applyPredicates handles predicates like [0], [-1], [1:3], [?(@.price > 10)]
-func (e *Engine) applyPredicates(ctx *MaterializedContext, inputs []interface{}, predicates []parser.Predicate) []interface{} {
-	results := inputs
+// applyPredicates handles predicates like [1], [@key='value']
+func (e *Engine) applyPredicates(ctx *MaterializedContext, itemsToFilter []interface{}, predicates []parser.Predicate) []interface{} {
+	results := itemsToFilter
 	for _, pred := range predicates {
 		var nextResults []interface{}
-		for _, input := range results {
-			arr, ok := input.([]interface{})
-			if !ok {
-				continue
+
+		switch pred.Type {
+		case parser.PredicateIndex:
+			idx := pred.Index
+			if idx < 0 {
+				idx += len(results)
+			}
+			if idx >= 0 && idx < len(results) {
+				nextResults = append(nextResults, results[idx])
 			}
 
-			switch pred.Type {
-			case parser.PredicateIndex:
-				idx := pred.Index
-				if idx < 0 {
-					idx += len(arr)
+		case parser.PredicateExpression:
+			evaluator := filter.NewFilterEvaluator()
+			for i, item := range results {
+				evalCtx := &filter.EvaluationContext{
+					ContextNode: item,
+					RootData:    ctx.data,
+					Position:    i + 1,
+					Size:        len(results),
 				}
-				if idx >= 0 && idx < len(arr) {
-					nextResults = append(nextResults, arr[idx])
-				}
-			case parser.PredicateSlice:
-				start, end := pred.Start, pred.End
-				if start < 0 {
-					start += len(arr)
-				}
-				if end < 0 {
-					end += len(arr)
-				}
-				if start < 0 {
-					start = 0
-				}
-				if end > len(arr) {
-					end = len(arr)
-				}
-				if start < end {
-					nextResults = append(nextResults, arr[start:end]...)
-				}
-			case parser.PredicateExpression:
-				// Use the new FilterEvaluator
-				evaluator := filter.NewFilterEvaluator()
-				for _, item := range arr {
-					ctx := &filter.EvaluationContext{
-						CurrentItem: item,
-						RootData:    ctx.data,
-					}
-					match, err := evaluator.EvaluateExpression(pred.Expression, ctx)
-					if err == nil && match {
-						nextResults = append(nextResults, item)
-					}
+				match, err := evaluator.EvaluateExpression(pred.Expression, evalCtx)
+				if err == nil && match {
+					nextResults = append(nextResults, item)
 				}
 			}
 		}

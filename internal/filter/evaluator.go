@@ -15,8 +15,10 @@ import (
 
 // EvaluationContext provides context for filter expression evaluation
 type EvaluationContext struct {
-	CurrentItem interface{} // The @ context (current array item being evaluated)
+	ContextNode interface{} // The context node (e.g., current array item)
 	RootData    interface{} // The $ context (root document)
+	Position    int         // The position of the context node in its parent (1-based)
+	Size        int         // The size of the context node's parent array
 }
 
 // FilterEvaluator evaluates filter expressions on JSON data
@@ -32,26 +34,25 @@ func (fe *FilterEvaluator) EvaluateExpression(expr *parser.Expression, ctx *Eval
 	if expr == nil {
 		return false, errors.New("cannot evaluate a nil expression")
 	}
-	switch expr.Type {
-	case parser.ExpressionBinary:
-		return fe.evaluateBinaryExpression(expr, ctx)
-	case parser.ExpressionUnary:
-		return fe.evaluateUnaryExpression(expr, ctx)
-	case parser.ExpressionLiteral:
-		return fe.evaluateLiteralExpression(expr, ctx)
-	case parser.ExpressionPath:
-		return fe.evaluatePathExpression(expr, ctx)
-	case parser.ExpressionFunction:
-		return fe.evaluateFunctionExpression(expr, ctx)
-	default:
-		return false, fmt.Errorf("unsupported expression type: %d", expr.Type)
+
+	// First, get the raw value of the expression
+	value, err := fe.getExpressionValue(expr, ctx)
+	if err != nil {
+		// A path not found is not an error in XPath predicates, it's just false.
+		if errors.Is(err, path.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
 	}
+
+	// Then, convert the value to a boolean based on XPath rules
+	return fe.toBool(value), nil
 }
 
-// evaluateBinaryExpression evaluates binary operations (==, !=, <, >, &&, ||)
+// evaluateBinaryExpression evaluates binary operations (==, !=, <, >, and, or)
 func (fe *FilterEvaluator) evaluateBinaryExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	switch expr.Operator {
-	case "&&":
+	case "and":
 		// Logical AND - short circuit evaluation
 		leftResult, err := fe.EvaluateExpression(expr.Left, ctx)
 		if err != nil || !leftResult {
@@ -59,7 +60,7 @@ func (fe *FilterEvaluator) evaluateBinaryExpression(expr *parser.Expression, ctx
 		}
 		return fe.EvaluateExpression(expr.Right, ctx)
 
-	case "||":
+	case "or":
 		// Logical OR - short circuit evaluation
 		leftResult, err := fe.EvaluateExpression(expr.Left, ctx)
 		if err != nil {
@@ -110,79 +111,16 @@ func (fe *FilterEvaluator) evaluateLiteralExpression(expr *parser.Expression, ct
 	}
 }
 
-// evaluatePathExpression evaluates path expressions (@.price, $.root.field)
-func (fe *FilterEvaluator) evaluatePathExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
-	value, err := fe.getExpressionValue(expr, ctx)
-	if err != nil {
-		return false, err
-	}
-
-	// Path exists and has truthy value
-	switch v := value.(type) {
-	case bool:
-		return v, nil
-	case float64:
-		return v != 0, nil
-	case string:
-		return v != "", nil
-	case nil:
-		return false, nil
-	default:
-		return true, nil // Non-nil values are truthy
-	}
-}
-
-// evaluateFunctionExpression evaluates function calls (exists, includes, etc.)
-func (fe *FilterEvaluator) evaluateFunctionExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
+// evaluateFunctionExpression evaluates function calls (e.g., position(), last())
+func (fe *FilterEvaluator) evaluateFunctionExpression(expr *parser.Expression, ctx *EvaluationContext) (interface{}, error) {
 	switch expr.Function {
-	case "exists":
-		if expr.Left == nil || expr.Left.Type != parser.ExpressionPath {
-			return false, errors.New("exists() requires a path argument")
-		}
-		pathStr := strings.Join(expr.Left.Path, ".")
-		_, exists := path.GetValueBySimplePath(ctx.CurrentItem, pathStr)
-		return exists, nil
-
-	case "includes":
-		// Check if array includes value
-		if expr.Left == nil || expr.Right == nil {
-			return false, errors.New("includes() requires two arguments")
-		}
-
-		// Get the array value
-		arrayValue, err := fe.getExpressionValue(expr.Left, ctx)
-		if err != nil {
-			return false, err
-		}
-
-		// Get the search value
-		searchValue, err := fe.getExpressionValue(expr.Right, ctx)
-		if err != nil {
-			return false, err
-		}
-
-		// Check if array contains the search value
-		switch arr := arrayValue.(type) {
-		case []interface{}:
-			for _, item := range arr {
-				if fe.valuesEqual(item, searchValue) {
-					return true, nil
-				}
-			}
-			return false, nil
-		case string:
-			// String contains check
-			searchStr, ok := searchValue.(string)
-			if !ok {
-				return false, nil
-			}
-			return strings.Contains(arr, searchStr), nil
-		default:
-			return false, nil
-		}
-
+	case "position":
+		return float64(ctx.Position), nil
+	case "last":
+		return float64(ctx.Size), nil
+	// Other XPath functions like string(), number(), etc. can be added here.
 	default:
-		return false, fmt.Errorf("unsupported function: %s", expr.Function)
+		return nil, fmt.Errorf("unsupported function: %s", expr.Function)
 	}
 }
 
@@ -213,7 +151,7 @@ func (fe *FilterEvaluator) valuesEqual(a, b interface{}) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// getExpressionValue gets the actual value of an expression (not boolean result)
+// getExpressionValue gets the actual value of an expression
 func (fe *FilterEvaluator) getExpressionValue(expr *parser.Expression, ctx *EvaluationContext) (interface{}, error) {
 	if expr == nil {
 		return nil, errors.New("cannot get value from a nil expression")
@@ -224,20 +162,29 @@ func (fe *FilterEvaluator) getExpressionValue(expr *parser.Expression, ctx *Eval
 		return expr.Value, nil
 
 	case parser.ExpressionPath:
-		pathParts := expr.Path
-		var targetData interface{} = ctx.CurrentItem
-
-		// If path starts with '@', it's explicitly relative to the current item.
-		// We can strip the '@' as GetValueBySimplePath works on the provided context.
-		if len(pathParts) > 0 && pathParts[0] == "@" {
-			pathParts = pathParts[1:]
+		// Paths in predicates are relative to the context node.
+		// The IsAttribute flag is not strictly needed if we assume attributes are just keys.
+		pathStr := strings.Join(expr.Path, "/")
+		val, found := path.GetValueBySimplePath(ctx.ContextNode, pathStr)
+		if !found {
+			return nil, path.ErrNotFound
 		}
+		return val, nil
 
-		pathStr := strings.Join(pathParts, "/")
+	case parser.ExpressionFunction:
+		return fe.evaluateFunctionExpression(expr, ctx)
 
-		// Evaluate on current item
-		value, _ := path.GetValueBySimplePath(targetData, pathStr)
-		return value, nil
+	case parser.ExpressionBinary:
+		// Logical expressions (and, or) are handled here.
+		// Comparison expressions are handled by compareValues.
+		return fe.evaluateBinaryExpression(expr, ctx)
+
+	case parser.ExpressionUnary:
+		val, err := fe.getExpressionValue(expr.Left, ctx)
+		if err != nil {
+			return nil, err
+		}
+		return !fe.toBool(val), nil
 
 	default:
 		return nil, fmt.Errorf("cannot get value from expression type: %d", expr.Type)
