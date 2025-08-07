@@ -112,15 +112,11 @@ func NewObjectNode(value map[string]Node, path string, funcs *map[string]func(No
 func (n *objectNode) Type() NodeType { return ObjectNode }
 func (n *objectNode) Get(key string) Node {
 	if n.err != nil {
-		fmt.Printf("objectNode.Get: Node has error: %v\n", n.err)
 		return n
 	}
-	fmt.Printf("objectNode.Get: Attempting to get key '%s' from path '%s'. Value map: %+v\n", key, n.path, n.value)
 	if child, ok := n.value[key]; ok {
-		fmt.Printf("objectNode.Get: Found child for key '%s'. Type: %v, Path: %s\n", key, child.Type(), child.Path())
 		return child
 	}
-	fmt.Printf("objectNode.Get: Key '%s' not found in path '%s'.\n", key, n.path)
 	return NewInvalidNode(n.path+"."+key, ErrNotFound)
 }
 func (n *objectNode) Index(i int) Node {
@@ -164,7 +160,21 @@ func (n *objectNode) String() string {
 	}
 	return buf.String()
 }
-func (n *objectNode) MustString() string  { panic(ErrTypeAssertion) }
+func (n *objectNode) MustString() string {
+	if n.err != nil {
+		panic(n.err)
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		panic(err) // Panic if marshaling fails
+	}
+	buf := new(bytes.Buffer)
+	err = json.Compact(buf, data)
+	if err != nil {
+		panic(err) // Panic if compacting fails
+	}
+	return buf.String()
+}
 func (n *objectNode) Float() float64      { return 0 }
 func (n *objectNode) MustFloat() float64  { panic(ErrTypeAssertion) }
 func (n *objectNode) Int() int64          { return 0 }
@@ -272,6 +282,18 @@ func (n *objectNode) Set(key string, value interface{}) Node {
 func (n *objectNode) Append(value interface{}) Node {
 	n.setError(ErrTypeAssertion) // Cannot append to an object
 	return n
+}
+
+func (n *objectNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		n.setError(err)
+		return ""
+	}
+	return string(data)
 }
 
 func (n *objectNode) RawFloat() (float64, bool) {
@@ -482,6 +504,18 @@ func (n *arrayNode) Append(value interface{}) Node {
 	return n
 }
 
+func (n *arrayNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		n.setError(err)
+		return ""
+	}
+	return string(data)
+}
+
 func (n *arrayNode) RawFloat() (float64, bool) {
 	return 0, false
 }
@@ -637,6 +671,13 @@ func (n *stringNode) Append(value interface{}) Node {
 	return n
 }
 
+func (n *stringNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
+	return `"` + n.value + `"`
+}
+
 func (n *stringNode) RawFloat() (float64, bool) {
 	return 0, false
 }
@@ -693,10 +734,7 @@ func (n *numberNode) String() string {
 	return strconv.FormatFloat(n.value, 'f', -1, 64)
 }
 func (n *numberNode) MustString() string {
-	if n.err != nil {
-		panic(n.err)
-	}
-	return strconv.FormatFloat(n.value, 'f', -1, 64)
+	panic(ErrTypeAssertion)
 }
 func (n *numberNode) Float() float64 {
 	if n.err != nil {
@@ -781,6 +819,13 @@ func (n *numberNode) Append(value interface{}) Node {
 	return n
 }
 
+func (n *numberNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
+	return strconv.FormatFloat(n.value, 'f', -1, 64)
+}
+
 func (n *numberNode) RawFloat() (float64, bool) {
 	if n.err != nil {
 		return 0, false
@@ -825,7 +870,7 @@ func (n *boolNode) Query(path string) Node {
 func (n *boolNode) ForEach(iterator func(interface{}, Node)) {}
 func (n *boolNode) Len() int                                 { return 0 }
 func (n *boolNode) String() string                           { return strconv.FormatBool(n.value) }
-func (n *boolNode) MustString() string                       { return strconv.FormatBool(n.value) }
+func (n *boolNode) MustString() string                       { panic(ErrTypeAssertion) }
 func (n *boolNode) Float() float64                           { return 0 }
 func (n *boolNode) MustFloat() float64                       { panic(ErrTypeAssertion) }
 func (n *boolNode) Int() int64                               { return 0 }
@@ -897,6 +942,13 @@ func (n *boolNode) Set(key string, value interface{}) Node {
 func (n *boolNode) Append(value interface{}) Node {
 	n.setError(ErrTypeAssertion) // Cannot append to a bool
 	return n
+}
+
+func (n *boolNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
+	return strconv.FormatBool(n.value)
 }
 
 func (n *boolNode) RawFloat() (float64, bool) {
@@ -998,6 +1050,10 @@ func (n *nullNode) Set(key string, value interface{}) Node {
 func (n *nullNode) Append(value interface{}) Node {
 	n.setError(ErrTypeAssertion) // Cannot append to a null
 	return n
+}
+
+func (n *nullNode) Raw() string {
+	return "null"
 }
 
 func (n *nullNode) RawFloat() (float64, bool) {

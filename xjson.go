@@ -1,6 +1,7 @@
 package xjson
 
 import (
+	"errors"
 	"time"
 
 	"github.com/474420502/xjson/internal/core"
@@ -187,7 +188,22 @@ func (w *nodeWrapper) RemoveFunc(name string) core.Node {
 }
 
 func (w *nodeWrapper) GetFuncs() *map[string]func(core.Node) core.Node {
-	return nil
+	engineFuncs := w.engineNode.GetFuncs()
+	if engineFuncs == nil {
+		return nil
+	}
+	coreFuncs := make(map[string]func(core.Node) core.Node)
+	for name, engineFn := range *engineFuncs {
+		// Create a closure to capture the engineFn
+		fn := engineFn
+		coreFuncs[name] = func(n core.Node) core.Node {
+			if wrapper, ok := n.(*nodeWrapper); ok {
+				return &nodeWrapper{engineNode: fn(wrapper.engineNode)}
+			}
+			return &nodeWrapper{engineNode: engine.NewInvalidNode(n.Path(), errors.New("node is not a wrapper"))}
+		}
+	}
+	return &coreFuncs
 }
 
 // Parse takes a JSON string and returns the root node of the parsed structure.
