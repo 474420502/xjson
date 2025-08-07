@@ -22,84 +22,67 @@ type Operation struct {
 	Func  string
 }
 
-// ParseQuery parses a JSONPath-like query string into a sequence of operations.
-// It supports slash-separated paths, array indexing, and function calls.
-// Examples: "/store/books[0]/title", "/products[@inStock]/id"
 func ParseQuery(path string) ([]Operation, error) {
 	var ops []Operation
-	if strings.HasPrefix(path, "/") {
-		path = path[1:] // Remove leading slash if present
-	}
+	// Normalize path: remove leading slash and replace dots with slashes for uniform processing
+	path = strings.TrimPrefix(path, "/")
+	path = strings.ReplaceAll(path, ".", "/")
 
 	parts := strings.Split(path, "/")
-	fmt.Printf("ParseQuery: path=%s, parts=%v\n", path, parts) // Keep this for debugging if needed
+	fmt.Printf("ParseQuery: path=%s, parts=%v\n", path, parts)
+
 	for _, part := range parts {
 		if part == "" {
-			continue // Skip empty parts from leading/trailing slashes or double slashes
+			continue
 		}
-		fmt.Printf("ParseQuery: Processing part: %s\n", part) // Keep this for debugging if needed
+		fmt.Printf("ParseQuery: Processing part: %s\n", part)
 
-		// Check for array index or function call
+		// Handle bracket notation for indexes or functions
 		if strings.Contains(part, "[") {
-			keyPart := part
-
-			// Find the first '['
 			openBracketIndex := strings.Index(part, "[")
-			if openBracketIndex == -1 {
-				// Should not happen if strings.Contains(part, "[") is true, but for safety
-				return nil, errors.New("malformed path segment: missing '['")
+			keyPart := part[:openBracketIndex]
+			if keyPart != "" {
+				ops = append(ops, Operation{Type: OpGet, Key: keyPart})
+				fmt.Printf("ParseQuery: Added OpGet: %s\n", keyPart)
 			}
 
-			keyPart = part[:openBracketIndex]
 			remaining := part[openBracketIndex:]
-			fmt.Printf("ParseQuery: keyPart=%s, remaining=%s\n", keyPart, remaining) // Keep this for debugging if needed
-
-			// Extract content within square brackets
 			for strings.HasPrefix(remaining, "[") {
 				closeBracketIndex := strings.Index(remaining, "]")
 				if closeBracketIndex == -1 {
 					return nil, errors.New("unmatched '[' in path segment")
 				}
-				squareBracketContent := remaining[1:closeBracketIndex]
-				fmt.Printf("ParseQuery: squareBracketContent=%s\n", squareBracketContent) // Keep this for debugging if needed
+				content := remaining[1:closeBracketIndex]
+				fmt.Printf("ParseQuery: squareBracketContent=%s\n", content)
 
-				if keyPart != "" {
-					ops = append(ops, Operation{Type: OpGet, Key: keyPart})
-					keyPart = "" // Key part is consumed
-				}
-
-				if strings.HasPrefix(squareBracketContent, "@") {
-					ops = append(ops, Operation{Type: OpFunc, Func: squareBracketContent[1:]})
-					fmt.Printf("ParseQuery: Added OpFunc: %s\n", squareBracketContent[1:]) // Keep this for debugging if needed
+				if strings.HasPrefix(content, "@") {
+					ops = append(ops, Operation{Type: OpFunc, Func: content[1:]})
+					fmt.Printf("ParseQuery: Added OpFunc: %s\n", content[1:])
 				} else {
-					index, err := strconv.Atoi(squareBracketContent)
+					index, err := strconv.Atoi(content)
 					if err != nil {
-						return nil, fmt.Errorf("invalid array index or function name: %s (error: %v)", squareBracketContent, err)
+						return nil, fmt.Errorf("invalid array index: %s", content)
 					}
 					ops = append(ops, Operation{Type: OpIndex, Index: index})
-					fmt.Printf("ParseQuery: Added OpIndex: %d\n", index) // Keep this for debugging if needed
+					fmt.Printf("ParseQuery: Added OpIndex: %d\n", index)
 				}
 				remaining = remaining[closeBracketIndex+1:]
-				fmt.Printf("ParseQuery: remaining after bracket: %s\n", remaining) // Keep this for debugging if needed
 			}
-
-			// If there's anything left after square brackets, it's a key
 			if remaining != "" {
-				ops = append(ops, Operation{Type: OpGet, Key: remaining})
-				fmt.Printf("ParseQuery: Added OpGet (remaining): %s\n", remaining) // Keep this for debugging if needed
+				// This case might indicate a malformed path, like "key[0]extra"
+				return nil, fmt.Errorf("malformed path segment: unexpected characters after ']' in %s", part)
 			}
-
 		} else {
 			// Simple key access
 			ops = append(ops, Operation{Type: OpGet, Key: part})
-			fmt.Printf("ParseQuery: Added OpGet: %s\n", part) // Keep this for debugging if needed
+			fmt.Printf("ParseQuery: Added OpGet: %s\n", part)
 		}
 	}
-	fmt.Printf("ParseQuery: Final ops: %v\n", ops) // Keep this for debugging if needed
+
+	fmt.Printf("ParseQuery: Final ops: %v\n", ops)
 	return ops, nil
 }
 
-// EvaluateQuery evaluates a sequence of operations on a given node.
 func EvaluateQuery(node Node, ops []Operation) Node {
 	currentNode := node
 	fmt.Printf("EvaluateQuery: Starting with node type %v, path %s\n", currentNode.Type(), currentNode.Path())
@@ -111,66 +94,32 @@ func EvaluateQuery(node Node, ops []Operation) Node {
 			return currentNode
 		}
 
-		if currentNode.Type() == ArrayNode {
-			var nextNodes []Node
-			fmt.Printf("EvaluateQuery: Current node is ArrayNode, iterating over elements.\n")
-			currentNode.ForEach(func(idx interface{}, elementNode Node) {
-				fmt.Printf("EvaluateQuery:   Processing array element %v, type %v, path %s\n", idx, elementNode.Type(), elementNode.Path())
-				var resultNode Node
-				switch op.Type {
-				case OpGet:
-					resultNode = elementNode.Get(op.Key)
-					fmt.Printf("EvaluateQuery:     OpGet('%s') on element. Result type %v, path %s, IsValid: %t\n", op.Key, resultNode.Type(), resultNode.Path(), resultNode.IsValid())
-				case OpIndex:
-					resultNode = elementNode.Index(op.Index)
-					fmt.Printf("EvaluateQuery:     OpIndex(%d) on element. Result type %v, path %s, IsValid: %t\n", op.Index, resultNode.Type(), resultNode.Path(), resultNode.IsValid())
-				case OpFunc:
-					// If a function returns an array, flatten it into nextNodes
-					fmt.Printf("EvaluateQuery:     OpFunc('%s') on element.\n", op.Func)
-					funcResult := elementNode.CallFunc(op.Func)
-					fmt.Printf("EvaluateQuery:       Func result type %v, path %s, IsValid: %t\n", funcResult.Type(), funcResult.Path(), funcResult.IsValid())
-					if funcResult.IsValid() && funcResult.Type() == ArrayNode {
-						fmt.Printf("EvaluateQuery:         Func returned ArrayNode, flattening.\n")
-						for _, n := range funcResult.Array() {
-							fmt.Printf("EvaluateQuery:           Adding flattened node type %v, path %s\n", n.Type(), n.Path())
-							nextNodes = append(nextNodes, n)
-						}
-					} else if funcResult.IsValid() {
-						fmt.Printf("EvaluateQuery:         Func returned single node, adding.\n")
-						nextNodes = append(nextNodes, funcResult)
-					} else {
-						fmt.Printf("EvaluateQuery:         Func returned invalid node. Error: %v\n", funcResult.Error())
+		switch op.Type {
+		case OpGet:
+			if currentNode.Type() == ArrayNode {
+				var nextNodes []Node
+				currentNode.ForEach(func(_ interface{}, elementNode Node) {
+					child := elementNode.Get(op.Key)
+					if child.IsValid() {
+						nextNodes = append(nextNodes, child)
 					}
-				default: // This case should ideally not be hit if all OpTypes are handled
-					if resultNode.IsValid() {
-						nextNodes = append(nextNodes, resultNode)
-					}
-				}
-			})
-			currentNode = NewArrayNode(nextNodes, currentNode.Path(), currentNode.GetFuncs())
-			fmt.Printf("EvaluateQuery: After array processing, current node type %v, len %d, path %s\n", currentNode.Type(), currentNode.Len(), currentNode.Path())
-		} else { // Handle non-array nodes
-			fmt.Printf("EvaluateQuery: Current node is non-ArrayNode, type %v, path %s\n", currentNode.Type(), currentNode.Path())
-			switch op.Type {
-			case OpGet:
+				})
+				currentNode = NewArrayNode(nextNodes, currentNode.Path(), currentNode.GetFuncs())
+			} else {
 				currentNode = currentNode.Get(op.Key)
-				fmt.Printf("EvaluateQuery:   OpGet('%s'). Result type %v, path %s, IsValid: %t\n", op.Key, currentNode.Type(), currentNode.Path(), currentNode.IsValid())
-			case OpIndex:
-				currentNode = currentNode.Index(op.Index)
-				fmt.Printf("EvaluateQuery:   OpIndex(%d). Result type %v, path %s, IsValid: %t\n", op.Index, currentNode.Type(), currentNode.Path(), currentNode.IsValid())
-			case OpFunc:
-				// If a function returns an array, the current node becomes that array
-				fmt.Printf("EvaluateQuery:   OpFunc('%s').\n", op.Func)
-				funcResult := currentNode.CallFunc(op.Func)
-				fmt.Printf("EvaluateQuery:     Func result type %v, path %s, IsValid: %t\n", funcResult.Type(), funcResult.Path(), funcResult.IsValid())
-				if funcResult.IsValid() && funcResult.Type() == ArrayNode {
-					fmt.Printf("EvaluateQuery:       Func returned ArrayNode, current node becomes this array.\n")
-					currentNode = funcResult
-				} else {
-					fmt.Printf("EvaluateQuery:       Func returned single node or invalid, current node becomes this result.\n")
-					currentNode = funcResult
-				}
 			}
+			fmt.Printf("EvaluateQuery:   OpGet('%s'). Result type %v, path %s, IsValid: %t\n", op.Key, currentNode.Type(), currentNode.Path(), currentNode.IsValid())
+		case OpIndex:
+			// OpIndex should only apply to the current node if it's an array.
+			// It doesn't map over the array, it selects from it.
+			currentNode = currentNode.Index(op.Index)
+			fmt.Printf("EvaluateQuery:   OpIndex(%d). Result type %v, path %s, IsValid: %t\n", op.Index, currentNode.Type(), currentNode.Path(), currentNode.IsValid())
+		case OpFunc:
+			// The function is applied to the current node as a whole,
+			// regardless of whether it's an array or an object.
+			// The function itself contains the logic for how to process the node.
+			currentNode = currentNode.CallFunc(op.Func)
+			fmt.Printf("EvaluateQuery:   OpFunc('%s'). Result type %v, path %s, IsValid: %t\n", op.Func, currentNode.Type(), currentNode.Path(), currentNode.IsValid())
 		}
 	}
 	fmt.Printf("EvaluateQuery: Final node type %v, path %s, IsValid: %t, Error: %v\n", currentNode.Type(), currentNode.Path(), currentNode.IsValid(), currentNode.Error())

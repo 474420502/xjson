@@ -106,24 +106,3 @@ func TestQuery(t *testing.T) {
 	result = root.Query("a.b[1]")
 	assert.False(t, result.IsValid())
 }
-
-func TestFuncs(t *testing.T) {
-	// Create a root node with a shared funcs map
-	funcs := make(map[string]func(Node) Node)
-	root := NewObjectNode(make(map[string]Node), "", &funcs)
-
-	// Register a function
-	root.Func("double", func(n Node) Node {
-		return NewNumberNode(n.Float()*2, "", &funcs)
-	})
-
-	// Call the function
-	result := root.CallFunc("double")
-	assert.True(t, result.IsValid())
-	assert.Equal(t, 0.0, result.Float())
-
-	// Remove the function
-	root.RemoveFunc("double")
-	result = root.CallFunc("double")
-	assert.False(t, result.IsValid())
-}

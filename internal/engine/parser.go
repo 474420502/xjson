@@ -13,17 +13,18 @@ func ParseJSONToNode(data string) (Node, error) {
 	}
 	// Create a shared funcs map for the entire tree
 	funcs := make(map[string]func(Node) Node)
-	return buildNode(v, "", &funcs), nil
+	// The raw string is passed to the root node
+	return buildNode(v, "", &funcs, &data), nil
 }
 
-func buildNode(v interface{}, path string, funcs *map[string]func(Node) Node) Node {
+func buildNode(v interface{}, path string, funcs *map[string]func(Node) Node, raw *string) Node {
 	switch val := v.(type) {
 	case map[string]interface{}:
-		return buildObjectNode(val, path, funcs)
+		return buildObjectNode(val, path, funcs, raw)
 	case []interface{}:
-		return buildArrayNode(val, path, funcs)
+		return buildArrayNode(val, path, funcs, raw)
 	case string:
-		return NewStringNode(val, path, funcs)
+		return NewStringNode(val, path, funcs) // Primitives don't need the full raw string
 	case float64:
 		return NewNumberNode(val, path, funcs)
 	case bool:
@@ -35,18 +36,23 @@ func buildNode(v interface{}, path string, funcs *map[string]func(Node) Node) No
 	}
 }
 
-func buildObjectNode(m map[string]interface{}, path string, funcs *map[string]func(Node) Node) Node {
+func buildObjectNode(m map[string]interface{}, path string, funcs *map[string]func(Node) Node, raw *string) Node {
 	nodes := make(map[string]Node, len(m))
 	for k, v := range m {
-		nodes[k] = buildNode(v, path+"."+k, funcs)
+		// Children nodes don't get the raw string, only the root does for the .Raw() method.
+		nodes[k] = buildNode(v, path+"."+k, funcs, nil)
 	}
-	return NewObjectNode(nodes, path, funcs)
+	node := NewObjectNode(nodes, path, funcs).(*objectNode)
+	node.raw = raw // Set raw string on the root object node
+	return node
 }
 
-func buildArrayNode(s []interface{}, path string, funcs *map[string]func(Node) Node) Node {
+func buildArrayNode(s []interface{}, path string, funcs *map[string]func(Node) Node, raw *string) Node {
 	nodes := make([]Node, len(s))
 	for i, v := range s {
-		nodes[i] = buildNode(v, fmt.Sprintf("%s[%d]", path, i), funcs) // Corrected path for array elements
+		nodes[i] = buildNode(v, fmt.Sprintf("%s[%d]", path, i), funcs, nil)
 	}
-	return NewArrayNode(nodes, path, funcs)
+	node := NewArrayNode(nodes, path, funcs).(*arrayNode)
+	node.raw = raw // Set raw string on the root array node
+	return node
 }
