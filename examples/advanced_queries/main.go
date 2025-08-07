@@ -85,8 +85,8 @@ func main() {
 
 	// 5. Complex Nested Queries
 	fmt.Println("\n5. Complex Nested Queries:")
-	bookTitles := doc.Query("store.book").Map(func(index int, book xjson.IResult) interface{} {
-		return book.Get("title").MustString()
+	bookTitles, _ := doc.Query("store.book").Map(func(index int, book xjson.IResult) (interface{}, error) {
+		return book.Get("title").String()
 	})
 	fmt.Printf("   Book titles: %v\n", bookTitles)
 	fmt.Printf("   Available books:\n")
@@ -101,10 +101,10 @@ func main() {
 
 	// 6. Multiple Path Queries
 	fmt.Println("\n6. Multiple Path Queries:")
-	electronicsNames := doc.Query("store.electronics").Map(func(index int, item xjson.IResult) interface{} {
-		name := item.Get("name").MustString()
-		price := item.Get("price").MustFloat()
-		return fmt.Sprintf("%s ($%.2f)", name, price)
+	electronicsNames, _ := doc.Query("store.electronics").Map(func(index int, item xjson.IResult) (interface{}, error) {
+		name, _ := item.Get("name").String()
+		price, _ := item.Get("price").Float()
+		return fmt.Sprintf("%s ($%.2f)", name, price), nil
 	})
 	fmt.Printf("   Electronics: %v\n", electronicsNames)
 

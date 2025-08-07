@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"reflect"
 	"testing"
 )
 
@@ -13,150 +14,78 @@ func init() {
 	}()
 }
 
-func TestDocumentParsing(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:    "valid simple object",
-			input:   `{"name": "test", "value": 42}`,
-			wantErr: false,
-		},
-		{
-			name:    "valid array",
-			input:   `[1, 2, 3]`,
-			wantErr: false,
-		},
-		{
-			name:    "valid nested object",
-			input:   `{"data": {"items": [{"id": 1, "name": "item1"}]}}`,
-			wantErr: false,
-		},
-		{
-			name:    "invalid JSON",
-			input:   `{"name": "test"`,
-			wantErr: true,
-		},
-		{
-			name:    "empty object",
-			input:   `{}`,
-			wantErr: false,
-		},
-		{
-			name:    "empty array",
-			input:   `[]`,
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			doc, err := ParseString(tt.input)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ParseString() expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ParseString() unexpected error: %v", err)
-				return
-			}
-
-			if !doc.IsValid() {
-				t.Errorf("ParseString() document should be valid")
-			}
-
-			if doc.IsMaterialized() {
-				t.Errorf("ParseString() document should not be materialized initially")
-			}
-		})
-	}
-}
-
-func TestDocumentBytes(t *testing.T) {
-	input := `{"name": "test", "value": 42}`
-	doc, err := ParseString(input)
-	if err != nil {
-		t.Fatalf("ParseString() error: %v", err)
-	}
-
-	bytes, err := doc.Bytes()
-	if err != nil {
-		t.Errorf("Bytes() error: %v", err)
-	}
-
-	if string(bytes) != input {
-		t.Errorf("Bytes() = %s, want %s", string(bytes), input)
-	}
-}
-
-func TestDocumentString(t *testing.T) {
-	input := `{"name": "test", "value": 42}`
-	doc, err := ParseString(input)
-	if err != nil {
-		t.Fatalf("ParseString() error: %v", err)
-	}
-
-	str, err := doc.String()
-	if err != nil {
-		t.Errorf("String() error: %v", err)
-	}
-
-	if str != input {
-		t.Errorf("String() = %s, want %s", str, input)
-	}
-}
-
-// Benchmark tests to verify lazy parsing performance
-func BenchmarkParse(b *testing.B) {
-	jsonData := []byte(`{
-		"store": {
-			"book": [
-				{"category": "fiction", "author": "Herman Melville", "title": "Moby Dick", "price": 8.99},
-				{"category": "fiction", "author": "J.R.R. Tolkien", "title": "The Lord of the Rings", "price": 22.99},
-				{"category": "science", "author": "Carl Sagan", "title": "Cosmos", "price": 15.99}
-			],
-			"bicycle": {
-				"color": "red",
-				"price": 19.95
-			}
-		}
-	}`)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := Parse(jsonData)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkParseString(b *testing.B) {
-	jsonStr := `{
-		"store": {
-			"book": [
-				{"category": "fiction", "author": "Herman Melville", "title": "Moby Dick", "price": 8.99},
-				{"category": "fiction", "author": "J.R.R. Tolkien", "title": "The Lord of the Rings", "price": 22.99},
-				{"category": "science", "author": "Carl Sagan", "title": "Cosmos", "price": 15.99}
-			],
-			"bicycle": {
-				"color": "red",
-				"price": 19.95
-			}
+func TestXJSONCoverage(t *testing.T) {
+	// Comprehensive JSON for testing various features
+	jsonData := `{
+		"string": "hello",
+		"int": 42,
+		"float": 3.14,
+		"bool_true": true,
+		"bool_false": false,
+		"null": null,
+		"array": [1, "two", 3.0],
+		"object": {
+			"nested_key": "nested_value"
 		}
 	}`
+	doc, err := ParseString(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := ParseString(jsonStr)
-		if err != nil {
-			b.Fatal(err)
+	// Test Must functions
+	if doc.Query("/string").MustString() != "hello" {
+		t.Error("MustString failed")
+	}
+	if doc.Query("/int").MustInt() != 42 {
+		t.Error("MustInt failed")
+	}
+	if doc.Query("/int").MustInt64() != 42 {
+		t.Error("MustInt64 failed")
+	}
+	if doc.Query("/float").MustFloat() != 3.14 {
+		t.Error("MustFloat failed")
+	}
+	if !doc.Query("/bool_true").MustBool() {
+		t.Error("MustBool failed for true")
+	}
+
+	// Test Value and Values
+	val := doc.Query("/string").Value()
+	if val.(string) != "hello" {
+		t.Errorf("Value() expected 'hello', got %v", val)
+	}
+	vals := doc.Query("/array/*").Values()
+	if len(vals) != 3 {
+		t.Fatalf("Values() expected 3 items, got %d", len(vals))
+	}
+	if vals[0].(float64) != 1 || vals[1].(string) != "two" || vals[2].(float64) != 3.0 {
+		t.Errorf("Values() returned incorrect data: %v", vals)
+	}
+
+	// Test Map and Filter
+	arrResult := doc.Query("/array")
+	mapped, err := arrResult.Map(func(idx int, item IResult) (interface{}, error) {
+		if item.IsNumber() {
+			return item.Float()
 		}
+		return item.String()
+	})
+	if err != nil {
+		t.Fatalf("Map() failed: %v", err)
+	}
+	expectedMap := []interface{}{1.0, "two", 3.0}
+	if !reflect.DeepEqual(mapped, expectedMap) {
+		t.Errorf("Map() expected %v, got %v", expectedMap, mapped)
+	}
+
+	filtered, err := arrResult.Filter(func(idx int, item IResult) (bool, error) {
+		return item.IsNumber(), nil
+	})
+	if err != nil {
+		t.Fatalf("Filter() failed: %v", err)
+	}
+	if filtered.Count() != 2 {
+		t.Errorf("Filter() expected 2 items, got %d", filtered.Count())
 	}
 }

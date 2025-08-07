@@ -140,3 +140,4 @@ data/
 
 # End of .gitignore
 *.txt
+__debug_bin*

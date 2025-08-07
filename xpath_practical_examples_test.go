@@ -96,7 +96,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 
 	t.Run("用户信息查询", func(t *testing.T) {
 		// 获取第一个用户的姓名
-		firstName, err := doc.Query("/users[0]/name").String()
+		firstName, err := doc.Query("/users[1]/name").String()
 		if err != nil {
 			t.Errorf("Query first user name failed: %v", err)
 		}
@@ -105,7 +105,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取第二个用户的城市
-		secondUserCity, err := doc.Query("/users[1]/profile/city").String()
+		secondUserCity, err := doc.Query("/users[2]/profile/city").String()
 		if err != nil {
 			t.Errorf("Query second user city failed: %v", err)
 		}
@@ -114,7 +114,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取第一个用户的主题偏好
-		theme, err := doc.Query("/users[0]/profile/preferences/theme").String()
+		theme, err := doc.Query("/users[1]/profile/preferences/theme").String()
 		if err != nil {
 			t.Errorf("Query user theme preference failed: %v", err)
 		}
@@ -125,7 +125,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 
 	t.Run("订单信息查询", func(t *testing.T) {
 		// 获取第一个用户的第一个订单金额
-		firstOrderAmount, err := doc.Query("/users[0]/orders[0]/amount").Float()
+		firstOrderAmount, err := doc.Query("/users[1]/orders[1]/amount").Float()
 		if err != nil {
 			t.Errorf("Query first order amount failed: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取第一个用户的第二个订单状态
-		secondOrderStatus, err := doc.Query("/users[0]/orders[1]/status").String()
+		secondOrderStatus, err := doc.Query("/users[1]/orders[2]/status").String()
 		if err != nil {
 			t.Errorf("Query second order status failed: %v", err)
 		}
@@ -143,7 +143,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取订单中的商品信息
-		productName, err := doc.Query("/users[0]/orders[0]/items[0]/product").String()
+		productName, err := doc.Query("/users[1]/orders[1]/items[1]/product").String()
 		if err != nil {
 			t.Errorf("Query order product name failed: %v", err)
 		}
@@ -152,7 +152,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取商品数量
-		quantity, err := doc.Query("/users[0]/orders[0]/items[0]/quantity").Int()
+		quantity, err := doc.Query("/users[1]/orders[1]/items[1]/quantity").Int()
 		if err != nil {
 			t.Errorf("Query product quantity failed: %v", err)
 		}
@@ -163,7 +163,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 
 	t.Run("产品信息查询", func(t *testing.T) {
 		// 获取第一个电子产品的名称
-		firstElectronics, err := doc.Query("/products/electronics[0]/name").String()
+		firstElectronics, err := doc.Query("/products/electronics[1]/name").String()
 		if err != nil {
 			t.Errorf("Query first electronics name failed: %v", err)
 		}
@@ -172,7 +172,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 获取第一本书的标题
-		firstBookTitle, err := doc.Query("/products/books[0]/title").String()
+		firstBookTitle, err := doc.Query("/products/books[1]/title").String()
 		if err != nil {
 			t.Errorf("Query first book title failed: %v", err)
 		}
@@ -238,7 +238,7 @@ func TestXPathPracticalExamples(t *testing.T) {
 		}
 
 		// 检查第一个用户的订单数量
-		userOrders := doc.Query("/users[0]/orders")
+		userOrders := doc.Query("/users[1]/orders")
 		orderCount := userOrders.Count()
 		if orderCount != 2 {
 			t.Errorf("Expected 2 orders for first user, got %d", orderCount)
@@ -333,7 +333,7 @@ func TestXPathAdvancedNavigationExamples(t *testing.T) {
 
 	t.Run("多层嵌套导航", func(t *testing.T) {
 		// 导航到深层嵌套的内容
-		exampleContent, err := doc.Query("/document/sections[0]/subsections[0]/examples[0]/content").String()
+		exampleContent, err := doc.Query("/document/sections[1]/subsections[1]/examples[1]/content").String()
 		if err != nil {
 			t.Errorf("Query deep nested content failed: %v", err)
 		}
@@ -342,7 +342,7 @@ func TestXPathAdvancedNavigationExamples(t *testing.T) {
 		}
 
 		// 获取第二个章节的第一个子章节标题
-		subTitle, err := doc.Query("/document/sections[1]/subsections[0]/title").String()
+		subTitle, err := doc.Query("/document/sections[2]/subsections[1]/title").String()
 		if err != nil {
 			t.Errorf("Query subsection title failed: %v", err)
 		}
@@ -353,7 +353,7 @@ func TestXPathAdvancedNavigationExamples(t *testing.T) {
 
 	t.Run("数组中的对象导航", func(t *testing.T) {
 		// 获取作者数组的第一个元素
-		firstAuthor, err := doc.Query("/document/metadata/authors[0]").String()
+		firstAuthor, err := doc.Query("/document/metadata/authors[1]").String()
 		if err != nil {
 			t.Errorf("Query first author failed: %v", err)
 		}
@@ -386,13 +386,13 @@ func TestXPathAdvancedNavigationExamples(t *testing.T) {
 		}
 
 		// 检查子章节是否是对象
-		subsection := doc.Query("/document/sections[@id='intro']/subsections[0]")
+		subsection := doc.Query("/document/sections[@id='intro']/subsections[1]")
 		if !subsection.IsObject() {
 			t.Error("Subsection should be an object")
 		}
 
 		// 检查示例数组
-		examples := doc.Query("/document/sections[@id='intro']/subsections[0]/examples")
+		examples := doc.Query("/document/sections[@id='intro']/subsections[1]/examples")
 		if !examples.IsArray() {
 			t.Error("Examples should be an array")
 		}
@@ -517,7 +517,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 
 	t.Run("产品信息详细查询", func(t *testing.T) {
 		// 第一个产品的基本信息
-		productName, err := doc.Query("/data/results[0]/name").String()
+		productName, err := doc.Query("/data/results[1]/name").String()
 		if err != nil {
 			t.Errorf("Query product name failed: %v", err)
 		}
@@ -526,7 +526,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 价格信息
-		price, err := doc.Query("/data/results[0]/price/amount").Float()
+		price, err := doc.Query("/data/results[1]/price/amount").Float()
 		if err != nil {
 			t.Errorf("Query price failed: %v", err)
 		}
@@ -534,7 +534,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 			t.Errorf("Expected 2999.00, got %f", price)
 		}
 
-		currency, err := doc.Query("/data/results[0]/price/currency").String()
+		currency, err := doc.Query("/data/results[1]/price/currency").String()
 		if err != nil {
 			t.Errorf("Query currency failed: %v", err)
 		}
@@ -543,7 +543,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 库存信息
-		inStock, err := doc.Query("/data/results[0]/availability/inStock").Bool()
+		inStock, err := doc.Query("/data/results[1]/availability/inStock").Bool()
 		if err != nil {
 			t.Errorf("Query inStock failed: %v", err)
 		}
@@ -551,7 +551,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 			t.Error("Expected product to be in stock")
 		}
 
-		quantity, err := doc.Query("/data/results[0]/availability/quantity").Int()
+		quantity, err := doc.Query("/data/results[1]/availability/quantity").Int()
 		if err != nil {
 			t.Errorf("Query quantity failed: %v", err)
 		}
@@ -562,7 +562,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 
 	t.Run("评论和标签信息", func(t *testing.T) {
 		// 第一个产品的评论
-		reviews := doc.Query("/data/results[0]/reviews")
+		reviews := doc.Query("/data/results[1]/reviews")
 		if !reviews.IsArray() {
 			t.Error("Reviews should be an array")
 		}
@@ -572,7 +572,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 第一条评论的评分
-		firstRating, err := doc.Query("/data/results[0]/reviews[0]/rating").Int()
+		firstRating, err := doc.Query("/data/results[1]/reviews[1]/rating").Int()
 		if err != nil {
 			t.Errorf("Query first review rating failed: %v", err)
 		}
@@ -581,7 +581,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 验证状态
-		verified, err := doc.Query("/data/results[0]/reviews[0]/verified").Bool()
+		verified, err := doc.Query("/data/results[1]/reviews[1]/verified").Bool()
 		if err != nil {
 			t.Errorf("Query verified status failed: %v", err)
 		}
@@ -590,7 +590,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 标签数组
-		tags := doc.Query("/data/results[0]/tags")
+		tags := doc.Query("/data/results[1]/tags")
 		if !tags.IsArray() {
 			t.Error("Tags should be an array")
 		}
@@ -600,7 +600,7 @@ func TestXPathRealWorldScenarios(t *testing.T) {
 		}
 
 		// 第一个标签
-		firstTag, err := doc.Query("/data/results[0]/tags[0]").String()
+		firstTag, err := doc.Query("/data/results[1]/tags[1]").String()
 		if err != nil {
 			t.Errorf("Query first tag failed: %v", err)
 		}

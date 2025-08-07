@@ -162,9 +162,7 @@ func (fe *FilterEvaluator) getExpressionValue(expr *parser.Expression, ctx *Eval
 		return expr.Value, nil
 
 	case parser.ExpressionPath:
-		// Paths in predicates are relative to the context node.
-		// The IsAttribute flag is not strictly needed if we assume attributes are just keys.
-		pathStr := strings.Join(expr.Path, "/")
+		pathStr := strings.Join(expr.Path, ".")
 		val, found := path.GetValueBySimplePath(ctx.ContextNode, pathStr)
 		if !found {
 			return nil, path.ErrNotFound

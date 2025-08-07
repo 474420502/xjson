@@ -368,6 +368,12 @@ func (p *Parser) parseStep() (Step, error) {
 		return step, fmt.Errorf("unexpected token '%s' at position %d", p.current.Value, p.current.Pos)
 	}
 
+	// After a step name, if the next token is not a predicate, assume a child separator.
+	if p.current.Type != TokenEOF && p.current.Type != TokenLeftBracket {
+		step.Type = StepChild
+		step.Axis = AxisChild
+	}
+
 	return step, nil
 }
 

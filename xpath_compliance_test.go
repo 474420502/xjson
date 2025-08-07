@@ -79,13 +79,13 @@ func TestXPathCompliance(t *testing.T) {
 		},
 		{
 			name:          "Select by positional index (first)",
-			xpath:         "//book[0]",
+			xpath:         "//book[1]",
 			expectedCount: 1,
 			expectedTitle: "Sayings of the Century",
 		},
 		{
 			name:          "Select by positional index (last)",
-			xpath:         "//book[3]",
+			xpath:         "//book[4]",
 			expectedCount: 1,
 			expectedTitle: "The Lord of the Rings",
 		},
@@ -101,21 +101,21 @@ func TestXPathCompliance(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := doc.Query(tt.xpath)
 			if result.Error() != nil {
-				t.Errorf("Query failed with error: %v", result.Error())
+				t.Errorf("Query '%s' failed with error: %v", tt.xpath, result.Error())
 				return
 			}
 
 			if result.MatchCount() != tt.expectedCount {
-				t.Errorf("Expected %d matches, but got %d", tt.expectedCount, result.MatchCount())
+				t.Errorf("For xpath '%s', expected %d matches, but got %d", tt.xpath, tt.expectedCount, result.MatchCount())
 			}
 
 			if tt.expectedTitle != "" && result.MatchCount() == 1 {
 				title, err := result.Get("title").String()
 				if err != nil {
-					t.Errorf("Failed to get title from result: %v", err)
+					t.Errorf("For xpath '%s', failed to get title from result: %v", tt.xpath, err)
 				}
 				if title != tt.expectedTitle {
-					t.Errorf("Expected title '%s', but got '%s'", tt.expectedTitle, title)
+					t.Errorf("For xpath '%s', expected title '%s', but got '%s'", tt.xpath, tt.expectedTitle, title)
 				}
 			}
 		})

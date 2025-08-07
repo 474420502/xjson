@@ -77,26 +77,30 @@ type IResult interface {
 
 	// Value access methods
 	Error() error
-	Value() (interface{}, error)
+	Value() interface{}
 	Values() []interface{}
 	Size() (int, error)
 
 	// Iteration methods
 	ForEach(func(index int, value IResult) bool)
-	Map(func(index int, value IResult) interface{}) []interface{}
-	Filter(func(index int, value IResult) bool) IResult
+	Map(func(idx int, item IResult) (interface{}, error)) ([]interface{}, error)
+	Filter(func(idx int, item IResult) (bool, error)) (IResult, error)
 
 	// Utility methods
 	Exists() bool
 	IsNull() bool
 	IsArray() bool
 	IsObject() bool
+	IsNumber() bool
 	First() IResult
 	Last() IResult
 
 	// Raw access
 	Raw() interface{}
 	Bytes() ([]byte, error)
+
+	// Query from result
+	Query(xpath string) IResult
 }
 
 // Document represents a JSON document with lazy parsing and materialize-on-write capabilities
@@ -313,6 +317,41 @@ type Result struct {
 	err     error
 }
 
+// Query continues querying from the current result set.
+// It effectively treats the first match in the current result as the root for the new query.
+func (r *Result) Query(xpath string) IResult {
+	if r.err != nil {
+		return &Result{err: r.err}
+	}
+	if len(r.matches) == 0 {
+		return &Result{err: ErrNotFound}
+	}
+
+	// The new query runs in the context of the first match.
+	contextNode := r.matches[0]
+
+	// The logic is similar to Document.Query, but on a sub-tree.
+	// We need a way to execute a query on an arbitrary `interface{}`.
+	// This suggests the engine needs to be accessible here or we need a helper.
+
+	p := parser.NewParser(xpath)
+	query, err := p.Parse()
+	if err != nil {
+		return &Result{err: fmt.Errorf("invalid sub-path syntax: %w", err)}
+	}
+
+	// Use the engine to execute the parsed query on the context node.
+	matches, queryErr := engine.NewEngine().ExecuteOnMaterialized(contextNode, query)
+	if queryErr != nil {
+		return &Result{doc: r.doc, err: queryErr}
+	}
+
+	return &Result{
+		doc:     r.doc, // The original document context is preserved
+		matches: convertMatches(matches),
+	}
+}
+
 // Implement IResult interface methods
 // Note: These are placeholder implementations
 
@@ -515,14 +554,14 @@ func (r *Result) MustBool() bool {
 	return b
 }
 
-func (r *Result) Value() (interface{}, error) {
+func (r *Result) Value() interface{} {
 	if r.err != nil {
-		return nil, r.err
+		return nil
 	}
 	if len(r.matches) == 0 {
-		return nil, ErrNotFound
+		return nil
 	}
-	return r.matches[0], nil
+	return r.matches[0]
 }
 
 func (r *Result) Values() []interface{} {
@@ -708,71 +747,60 @@ func (r *Result) ForEach(fn func(index int, value IResult) bool) {
 	}
 }
 
-func (r *Result) Map(fn func(index int, value IResult) interface{}) []interface{} {
+func (r *Result) Map(fn func(idx int, item IResult) (interface{}, error)) ([]interface{}, error) {
 	if r.err != nil {
-		return nil
+		return nil, r.err
 	}
 
-	// If we have exactly one match and it's an array, map over the array elements
+	var itemsToMap []interface{}
 	if len(r.matches) == 1 {
 		if arr, ok := r.matches[0].([]interface{}); ok {
-			results := make([]interface{}, len(arr))
-			for i, item := range arr {
-				result := &Result{
-					doc:     r.doc,
-					matches: []interface{}{item},
-				}
-				results[i] = fn(i, result)
-			}
-			return results
+			itemsToMap = arr
+		} else {
+			itemsToMap = r.matches
 		}
+	} else {
+		itemsToMap = r.matches
 	}
 
-	// Otherwise map over matches
-	results := make([]interface{}, len(r.matches))
-	for i, match := range r.matches {
-		result := &Result{
-			doc:     r.doc,
-			matches: []interface{}{match},
+	results := make([]interface{}, len(itemsToMap))
+	for i, item := range itemsToMap {
+		res, err := fn(i, &Result{doc: r.doc, matches: []interface{}{item}})
+		if err != nil {
+			return nil, err
 		}
-		results[i] = fn(i, result)
+		results[i] = res
 	}
-	return results
+	return results, nil
 }
 
-func (r *Result) Filter(fn func(index int, value IResult) bool) IResult {
+func (r *Result) Filter(fn func(idx int, item IResult) (bool, error)) (IResult, error) {
 	if r.err != nil {
-		return &Result{err: r.err}
+		return nil, r.err
 	}
 
-	// If a single match is an array, filter its elements and return a new result containing the filtered array.
+	var itemsToFilter []interface{}
 	if len(r.matches) == 1 {
 		if arr, ok := r.matches[0].([]interface{}); ok {
-			var filteredArray []interface{} // This will be the new array
-			for i, item := range arr {
-				result := &Result{doc: r.doc, matches: []interface{}{item}}
-				if fn(i, result) {
-					filteredArray = append(filteredArray, item)
-				}
-			}
-			// The result should contain the new filtered array as its single match
-			return &Result{doc: r.doc, matches: []interface{}{filteredArray}}
+			itemsToFilter = arr
+		} else {
+			itemsToFilter = r.matches
 		}
+	} else {
+		itemsToFilter = r.matches
 	}
 
-	// Default behavior: filter the matches themselves. This is for when the result is already a list of matches.
-	var filteredMatches []interface{}
-	for i, match := range r.matches {
-		result := &Result{doc: r.doc, matches: []interface{}{match}}
-		if fn(i, result) {
-			filteredMatches = append(filteredMatches, match)
+	var filteredItems []interface{}
+	for i, item := range itemsToFilter {
+		ok, err := fn(i, &Result{doc: r.doc, matches: []interface{}{item}})
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			filteredItems = append(filteredItems, item)
 		}
 	}
-
-	return &Result{
-		doc:     r.doc,
-		matches: filteredMatches,
-	}
+	return &Result{doc: r.doc, matches: filteredItems}, nil
 }
 
 func (r *Result) Exists() bool {
@@ -811,6 +839,18 @@ func (r *Result) IsObject() bool {
 	}
 	_, ok := r.matches[0].(map[string]interface{})
 	return ok
+}
+
+func (r *Result) IsNumber() bool {
+	if r.err != nil || len(r.matches) == 0 {
+		return false
+	}
+	switch r.matches[0].(type) {
+	case float64, int, int64:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Result) First() IResult {

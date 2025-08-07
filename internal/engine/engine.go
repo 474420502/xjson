@@ -58,25 +58,28 @@ func (e *Engine) executeStepsOnMaterialized(ctx *MaterializedContext, steps []pa
 	remaining := steps[1:]
 	var stepResults []interface{}
 
-	if step.Type == parser.StepDescendant {
-		stepResults = e.executeDescendantStepOnMaterialized(ctx, step, currentItems[0])
-	} else {
-		for _, current := range currentItems {
-			var items []interface{}
-			switch step.Type {
-			case parser.StepChild:
-				items = e.executeChildStepOnMaterialized(ctx, step, current)
-			case parser.StepWildcard:
-				items = e.executeWildcardStepOnMaterialized(ctx, step, current)
-			default:
-				return nil, fmt.Errorf("unsupported step type: %v", step.Type)
-			}
-			stepResults = append(stepResults, items...)
+	for _, current := range currentItems {
+		var items []interface{}
+		switch step.Type {
+		case parser.StepDescendant:
+			items = e.executeDescendantStepOnMaterialized(ctx, step, current)
+		case parser.StepChild:
+			items = e.executeChildStepOnMaterialized(ctx, step, current)
+		case parser.StepWildcard:
+			items = e.executeWildcardStepOnMaterialized(ctx, step, current)
+		default:
+			return nil, fmt.Errorf("unsupported step type: %v", step.Type)
 		}
-	}
 
-	if len(step.Predicates) > 0 {
-		stepResults = e.applyPredicates(ctx, stepResults, step.Predicates)
+		// Predicates are always applied to the list of nodes returned by the current step.
+		if len(step.Predicates) > 0 {
+			items = e.applyPredicates(ctx, items, step.Predicates)
+		}
+
+		// Flatten stepResults before appending
+		for _, item := range items {
+			stepResults = append(stepResults, item)
+		}
 	}
 
 	return e.executeStepsOnMaterialized(ctx, remaining, stepResults)
@@ -84,15 +87,14 @@ func (e *Engine) executeStepsOnMaterialized(ctx *MaterializedContext, steps []pa
 
 // executeChildStepOnMaterialized executes a child access step
 func (e *Engine) executeChildStepOnMaterialized(ctx *MaterializedContext, step parser.Step, current interface{}) []interface{} {
+	if step.Name == "*" {
+		return e.executeWildcardStepOnMaterialized(ctx, step, current)
+	}
+
 	if obj, ok := current.(map[string]interface{}); ok {
 		if val, exists := obj[step.Name]; exists {
-			if arr, isArr := val.([]interface{}); isArr {
-				return arr
-			}
 			return []interface{}{val}
 		}
-	} else if arr, ok := current.([]interface{}); ok {
-		return arr
 	}
 	return nil
 }
@@ -104,19 +106,22 @@ func (e *Engine) executeDescendantStepOnMaterialized(ctx *MaterializedContext, s
 
 	search = func(node interface{}) {
 		if m, ok := node.(map[string]interface{}); ok {
-			if val, exists := m[step.Name]; exists {
-				if arr, isArr := val.([]interface{}); isArr {
-					matches = append(matches, arr...)
-				} else {
+			if step.Name == "*" {
+				for _, val := range m {
+					matches = append(matches, val)
+					search(val)
+				}
+			} else {
+				if val, exists := m[step.Name]; exists {
 					matches = append(matches, val)
 				}
-			}
-			for _, v := range m {
-				search(v)
+				for _, v := range m {
+					search(v)
+				}
 			}
 		} else if a, ok := node.([]interface{}); ok {
-			for _, v := range a {
-				search(v)
+			for _, item := range a {
+				search(item)
 			}
 		}
 	}
@@ -134,19 +139,33 @@ func (e *Engine) executeWildcardStepOnMaterialized(ctx *MaterializedContext, ste
 		}
 	} else if arr, ok := current.([]interface{}); ok {
 		results = append(results, arr...)
+	} else {
+		results = append(results, current)
 	}
 	return results
 }
 
 // applyPredicates handles predicates like [1], [@key='value']
 func (e *Engine) applyPredicates(ctx *MaterializedContext, itemsToFilter []interface{}, predicates []parser.Predicate) []interface{} {
-	results := itemsToFilter
+	var flattenedItems []interface{}
+	for _, item := range itemsToFilter {
+		if asSlice, ok := item.([]interface{}); ok {
+			flattenedItems = append(flattenedItems, asSlice...)
+		} else {
+			flattenedItems = append(flattenedItems, item)
+		}
+	}
+	results := flattenedItems
+
 	for _, pred := range predicates {
 		var nextResults []interface{}
 
 		switch pred.Type {
 		case parser.PredicateIndex:
 			idx := pred.Index
+			if idx > 0 {
+				idx-- // XPath is 1-based, Go slices are 0-based
+			}
 			if idx < 0 {
 				idx += len(results)
 			}

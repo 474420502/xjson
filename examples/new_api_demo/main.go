@@ -69,9 +69,9 @@ func main() {
 	// 3. 测试 Value() 和 Values()
 	fmt.Println("\n3. Value() 和 Values():")
 
-	value, err := priceResult.Value()
-	if err != nil {
-		fmt.Printf("store.book[0].price Value() 错误: %v\n", err)
+	value := priceResult.Value()
+	if priceResult.Error() != nil {
+		fmt.Printf("store.book[0].price Value() 错误: %v\n", priceResult.Error())
 	} else {
 		fmt.Printf("store.book[0].price 值: %v\n", value)
 	}

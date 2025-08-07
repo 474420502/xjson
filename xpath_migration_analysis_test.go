@@ -40,8 +40,8 @@ func TestXPathStyleMigrationExample(t *testing.T) {
 			t.Errorf("Expected 'John', got '%s'", xpathName)
 		}
 
-		// 数组访问：/user/orders[0]/total
-		xpathOrderTotal, err := doc.Query("/user/orders[0]/total").Float()
+		// 数组访问：/user/orders[1]/total
+		xpathOrderTotal, err := doc.Query("/user/orders[1]/total").Float()
 		if err != nil {
 			t.Errorf("XPath style array access failed: %v", err)
 		} else if xpathOrderTotal != 99.99 {
