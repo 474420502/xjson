@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/474420502/xjson/internal/parser"
-	"github.com/474420502/xjson/internal/scanner"
 )
 
 func TestNewEngine(t *testing.T) {
@@ -16,83 +15,6 @@ func TestNewEngine(t *testing.T) {
 }
 
 // Test executeDescendantStep - 0% coverage
-func TestExecuteOnRaw_DescendantStep(t *testing.T) {
-	jsonData := []byte(`{"store": {"book": {"title": "Example"}}}`)
-	query := &parser.Query{
-		Steps: []parser.Step{
-			{Type: parser.StepDescendant, Name: "book"},
-		},
-	}
-
-	engine := NewEngine()
-	matches, err := engine.ExecuteOnRaw(jsonData, query)
-	if err != nil {
-		t.Fatalf("ExecuteOnRaw error: %v", err)
-	}
-
-	// Current implementation falls back to child step, so may not find deep descendant
-	// The test passes if no error occurs and function is called
-	t.Logf("Descendant step executed with %d matches", len(matches))
-}
-
-// Test executeWildcardStep - 0% coverage
-func TestExecuteOnRaw_WildcardStep(t *testing.T) {
-	jsonData := []byte(`[1, 2, 3]`)
-	query := &parser.Query{
-		Steps: []parser.Step{
-			{Type: parser.StepWildcard},
-		},
-	}
-
-	engine := NewEngine()
-	matches, err := engine.ExecuteOnRaw(jsonData, query)
-	if err != nil {
-		t.Fatalf("ExecuteOnRaw error: %v", err)
-	}
-
-	// Test that wildcard step function is called
-	t.Logf("Wildcard step executed with %d matches", len(matches))
-}
-
-// Test executeArrayStep - 0% coverage
-func TestExecuteOnRaw_ArrayStep(t *testing.T) {
-	jsonData := []byte(`{"books": [{"title": "Book1"}, {"title": "Book2"}]}`)
-	query := &parser.Query{
-		Steps: []parser.Step{
-			{Type: parser.StepChild, Name: "books", Predicates: []parser.Predicate{
-				{Type: parser.PredicateIndex, Index: 0},
-			}},
-		},
-	}
-
-	engine := NewEngine()
-	matches, err := engine.ExecuteOnRaw(jsonData, query)
-	if err != nil {
-		t.Fatalf("ExecuteOnRaw error: %v", err)
-	}
-
-	// Should match first array element
-	if len(matches) != 1 {
-		t.Errorf("Expected 1 match for array index access, got %d", len(matches))
-	}
-}
-
-// Test getRootData - 0% coverage
-func TestGetRootData(t *testing.T) {
-	jsonData := []byte(`{"root": {"value": 42}}`)
-	engine := NewEngine()
-	engine.scanner = scanner.NewScanner(jsonData)
-
-	ctx := &QueryContext{
-		scanner: engine.scanner,
-		data:    jsonData,
-	}
-
-	rootData := engine.getRootData(ctx)
-	if rootData == nil {
-		t.Error("getRootData should return non-nil for valid JSON")
-	}
-}
 
 // Test executeDescendantStepOnMaterialized - 0% coverage
 func TestExecuteOnMaterialized_DescendantStep(t *testing.T) {
@@ -174,7 +96,7 @@ func TestApplyFilterFunction(t *testing.T) {
 
 	predicate := parser.Predicate{
 		Type: parser.PredicateExpression,
-		Expression: parser.Expression{
+		Expression: &parser.Expression{
 			Type:     parser.ExpressionBinary,
 			Operator: "==", // String operator
 			Left: &parser.Expression{
@@ -188,14 +110,13 @@ func TestApplyFilterFunction(t *testing.T) {
 		},
 	}
 
-	rootData := map[string]interface{}{"context": "test"}
+	engine := NewEngine()
+	ctx := &MaterializedContext{data: items}
+	result := engine.applyPredicates(ctx, items, []parser.Predicate{predicate})
 
-	result, err := ApplyFilter(items, predicate, rootData)
-	if err != nil {
-		t.Fatalf("ApplyFilter error: %v", err)
+	if len(result) != 1 {
+		t.Errorf("Expected 1 item to be filtered, got %d", len(result))
 	}
-
-	t.Logf("Filter result: %v", result)
 }
 
 func TestExecuteOnMaterialized_SimplePath(t *testing.T) {
@@ -221,25 +142,6 @@ func TestExecuteOnMaterialized_Wildcard(t *testing.T) {
 	}
 	if len(matches) != 2 {
 		t.Errorf("Expected 2 matches for wildcard, got %d", len(matches))
-	}
-}
-
-func TestExecuteOnRaw(t *testing.T) {
-	jsonData := []byte(`{"name": "test", "value": 42}`)
-	p := parser.NewParser("name")
-	query, err := p.Parse()
-	if err != nil {
-		t.Fatalf("Parse error: %v", err)
-	}
-
-	engine := NewEngine()
-	matches, err := engine.ExecuteOnRaw(jsonData, query)
-	if err != nil {
-		t.Fatalf("ExecuteOnRaw error: %v", err)
-	}
-
-	if len(matches) == 0 {
-		t.Error("Expected at least one match")
 	}
 }
 
@@ -276,58 +178,6 @@ func TestParseSimplePath(t *testing.T) {
 			result := ParseSimplePath(tt.path)
 
 			if !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("Expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestGetValueBySimplePath(t *testing.T) {
-	data := map[string]interface{}{
-		"store": map[string]interface{}{
-			"book": map[string]interface{}{
-				"title":  "Test Book",
-				"author": "Test Author",
-			},
-		},
-		"numbers": []interface{}{1, 2, 3},
-	}
-
-	tests := []struct {
-		name     string
-		path     string
-		expected interface{}
-		found    bool
-	}{
-		{
-			name:     "nested object access",
-			path:     "store.book.title",
-			expected: "Test Book",
-			found:    true,
-		},
-		{
-			name:  "non-existent path",
-			path:  "missing.key",
-			found: false,
-		},
-		{
-			name:     "root level access",
-			path:     "store",
-			expected: data["store"],
-			found:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, found := GetValueBySimplePath(data, tt.path)
-
-			if found != tt.found {
-				t.Errorf("Expected found=%t, got found=%t", tt.found, found)
-				return
-			}
-
-			if tt.found && !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
@@ -376,70 +226,6 @@ func TestConvertValue(t *testing.T) {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
-	}
-}
-
-func TestGetValueBySimplePathFromRaw(t *testing.T) {
-	jsonData := []byte(`{"store": {"book": {"title": "Test"}}, "numbers": [1, 2, 3]}`)
-
-	tests := []struct {
-		name     string
-		path     string
-		expected interface{}
-		found    bool
-	}{
-		{
-			name:     "nested path",
-			path:     "store.book.title",
-			expected: "Test",
-			found:    true,
-		},
-		{
-			name:  "non-existent path",
-			path:  "missing",
-			found: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, found := GetValueBySimplePathFromRaw(jsonData, tt.path)
-
-			if found != tt.found {
-				t.Errorf("Expected found=%t, got found=%t", tt.found, found)
-				return
-			}
-
-			if tt.found && !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("Expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestApplyFilter(t *testing.T) {
-	// Test the ApplyFilter function with a simple predicate
-	data := []interface{}{
-		map[string]interface{}{"price": 10.0, "category": "book"},
-		map[string]interface{}{"price": 15.0, "category": "book"},
-		map[string]interface{}{"price": 5.0, "category": "pen"},
-	}
-
-	// Create a simple index predicate
-	predicate := parser.Predicate{
-		Type:  parser.PredicateIndex,
-		Index: 0,
-	}
-
-	result, err := ApplyFilter(data, predicate, data)
-	if err != nil {
-		t.Errorf("ApplyFilter error: %v", err)
-	}
-
-	// For index predicate, it should return all items or handle differently
-	// Let's just check that it doesn't error
-	if result == nil {
-		t.Error("ApplyFilter should not return nil")
 	}
 }
 

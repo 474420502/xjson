@@ -20,7 +20,7 @@ func TestEvaluateLiteralExpression(t *testing.T) {
 		{"abc", true},
 	}
 	for _, c := range cases {
-		expr := parser.Expression{Type: parser.ExpressionLiteral, Value: c.val}
+		expr := &parser.Expression{Type: parser.ExpressionLiteral, Value: c.val}
 		got, _ := fe.evaluateLiteralExpression(expr, nil)
 		if got != c.expect {
 			t.Errorf("Literal %v: expect %v, got %v", c.val, c.expect, got)
@@ -31,9 +31,9 @@ func TestEvaluateLiteralExpression(t *testing.T) {
 func TestEvaluateBinaryExpression(t *testing.T) {
 	fe := NewFilterEvaluator()
 	ctx := &EvaluationContext{CurrentItem: map[string]interface{}{"x": 2}}
-	left := parser.Expression{Type: parser.ExpressionPath, Path: []string{"x"}}
-	right := parser.Expression{Type: parser.ExpressionLiteral, Value: 2}
-	expr := parser.Expression{Type: parser.ExpressionBinary, Operator: "==", Left: &left, Right: &right}
+	left := &parser.Expression{Type: parser.ExpressionPath, Path: []string{"x"}}
+	right := &parser.Expression{Type: parser.ExpressionLiteral, Value: 2}
+	expr := &parser.Expression{Type: parser.ExpressionBinary, Operator: "==", Left: left, Right: right}
 	ok, err := fe.evaluateBinaryExpression(expr, ctx)
 	if err != nil || !ok {
 		t.Errorf("Binary == failed: %v, %v", ok, err)
@@ -43,7 +43,14 @@ func TestEvaluateBinaryExpression(t *testing.T) {
 func TestEvaluateFunctionExpression_exists(t *testing.T) {
 	fe := NewFilterEvaluator()
 	ctx := &EvaluationContext{CurrentItem: map[string]interface{}{"foo": 1}}
-	expr := parser.Expression{Type: parser.ExpressionFunction, Function: "exists", Path: []string{"foo"}}
+	expr := &parser.Expression{
+		Type:     parser.ExpressionFunction,
+		Function: "exists",
+		Left: &parser.Expression{
+			Type: parser.ExpressionPath,
+			Path: []string{"foo"},
+		},
+	}
 	ok, err := fe.evaluateFunctionExpression(expr, ctx)
 	if err != nil || !ok {
 		t.Errorf("exists() should be true, got %v, %v", ok, err)
@@ -56,14 +63,14 @@ func TestEvaluateExpression(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		expr     parser.Expression
+		expr     *parser.Expression
 		ctx      *EvaluationContext
 		expected bool
 		hasError bool
 	}{
 		{
 			name: "literal true",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type:  parser.ExpressionLiteral,
 				Value: true,
 			},
@@ -72,7 +79,7 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name: "literal false",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type:  parser.ExpressionLiteral,
 				Value: false,
 			},
@@ -81,7 +88,7 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name: "binary expression",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type:     parser.ExpressionBinary,
 				Operator: "==",
 				Left: &parser.Expression{
@@ -127,14 +134,14 @@ func TestEvaluatePathExpression(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		expr     parser.Expression
+		expr     *parser.Expression
 		ctx      *EvaluationContext
 		expected bool
 		hasError bool
 	}{
 		{
 			name: "path exists",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type: parser.ExpressionPath,
 				Path: []string{"name"},
 			},
@@ -147,7 +154,7 @@ func TestEvaluatePathExpression(t *testing.T) {
 		},
 		{
 			name: "path doesn't exist",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type: parser.ExpressionPath,
 				Path: []string{"missing"},
 			},
@@ -189,14 +196,14 @@ func TestEvaluateUnaryExpression(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		expr     parser.Expression
+		expr     *parser.Expression
 		ctx      *EvaluationContext
 		expected bool
 		hasError bool
 	}{
 		{
 			name: "NOT true",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type:     parser.ExpressionUnary,
 				Operator: "!",
 				Left: &parser.Expression{
@@ -209,7 +216,7 @@ func TestEvaluateUnaryExpression(t *testing.T) {
 		},
 		{
 			name: "NOT false",
-			expr: parser.Expression{
+			expr: &parser.Expression{
 				Type:     parser.ExpressionUnary,
 				Operator: "!",
 				Left: &parser.Expression{
@@ -266,13 +273,13 @@ func TestComparisons(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			left := parser.Expression{Type: parser.ExpressionLiteral, Value: tt.left}
-			right := parser.Expression{Type: parser.ExpressionLiteral, Value: tt.right}
-			expr := parser.Expression{
+			left := &parser.Expression{Type: parser.ExpressionLiteral, Value: tt.left}
+			right := &parser.Expression{Type: parser.ExpressionLiteral, Value: tt.right}
+			expr := &parser.Expression{
 				Type:     parser.ExpressionBinary,
 				Operator: tt.operator,
-				Left:     &left,
-				Right:    &right,
+				Left:     left,
+				Right:    right,
 			}
 
 			result, err := fe.evaluateBinaryExpression(expr, &EvaluationContext{})

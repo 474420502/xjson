@@ -161,6 +161,9 @@ func (l *Lexer) NextToken() Token {
 			l.advance()
 			return Token{Type: TokenEQ, Value: "==", Pos: l.start}
 		}
+		// Allow single '=' for equality as well for simplified syntax
+		l.advance()
+		return Token{Type: TokenEQ, Value: "==", Pos: l.start}
 
 	case '!':
 		if l.peek() == '=' {
@@ -251,7 +254,7 @@ const (
 // Predicate represents a filter condition
 type Predicate struct {
 	Type       PredicateType
-	Expression Expression
+	Expression *Expression
 	Index      int
 	Start      int
 	End        int
@@ -328,6 +331,7 @@ func (p *Parser) Parse() (*Query, error) {
 // parseStep parses a single step in the query
 func (p *Parser) parseStep() (Step, error) {
 	step := Step{}
+	initialPos := p.current.Pos
 
 	// Handle recursive descent
 	if p.current.Type == TokenDoubleSlash {
@@ -366,6 +370,11 @@ func (p *Parser) parseStep() (Step, error) {
 			return step, err
 		}
 		step.Predicates = append(step.Predicates, predicate)
+	}
+
+	// If we haven't consumed any tokens and we're not at the end, it's an error.
+	if p.current.Pos == initialPos && p.current.Type != TokenEOF {
+		return step, fmt.Errorf("unexpected token '%s' at position %d", p.current.Value, p.current.Pos)
 	}
 
 	return step, nil
@@ -432,7 +441,7 @@ func (p *Parser) parsePredicate() (Predicate, error) {
 		}
 
 	default:
-		// Filter expression [...]
+		// Filter expression
 		predicate.Type = PredicateExpression
 		expr, err := p.parseExpression()
 		if err != nil {
@@ -450,15 +459,15 @@ func (p *Parser) parsePredicate() (Predicate, error) {
 }
 
 // parseExpression parses a filter expression
-func (p *Parser) parseExpression() (Expression, error) {
+func (p *Parser) parseExpression() (*Expression, error) {
 	return p.parseOrExpression()
 }
 
 // parseOrExpression parses logical OR expressions
-func (p *Parser) parseOrExpression() (Expression, error) {
+func (p *Parser) parseOrExpression() (*Expression, error) {
 	left, err := p.parseAndExpression()
 	if err != nil {
-		return Expression{}, err
+		return nil, err
 	}
 
 	for p.current.Type == TokenOr {
@@ -467,15 +476,13 @@ func (p *Parser) parseOrExpression() (Expression, error) {
 
 		right, err := p.parseAndExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
-		// Create copies to avoid pointer aliasing issues
-		leftCopy := left
-		left = Expression{
+		left = &Expression{
 			Type:     ExpressionBinary,
-			Left:     &leftCopy,
-			Right:    &right,
+			Left:     left,
+			Right:    right,
 			Operator: op,
 		}
 	}
@@ -484,10 +491,10 @@ func (p *Parser) parseOrExpression() (Expression, error) {
 }
 
 // parseAndExpression parses logical AND expressions
-func (p *Parser) parseAndExpression() (Expression, error) {
+func (p *Parser) parseAndExpression() (*Expression, error) {
 	left, err := p.parseComparisonExpression()
 	if err != nil {
-		return Expression{}, err
+		return nil, err
 	}
 
 	for p.current.Type == TokenAnd {
@@ -496,15 +503,13 @@ func (p *Parser) parseAndExpression() (Expression, error) {
 
 		right, err := p.parseComparisonExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
-		// Create copies to avoid pointer aliasing issues
-		leftCopy := left
-		left = Expression{
+		left = &Expression{
 			Type:     ExpressionBinary,
-			Left:     &leftCopy,
-			Right:    &right,
+			Left:     left,
+			Right:    right,
 			Operator: op,
 		}
 	}
@@ -513,10 +518,10 @@ func (p *Parser) parseAndExpression() (Expression, error) {
 }
 
 // parseComparisonExpression parses comparison expressions
-func (p *Parser) parseComparisonExpression() (Expression, error) {
+func (p *Parser) parseComparisonExpression() (*Expression, error) {
 	left, err := p.parsePrimaryExpression()
 	if err != nil {
-		return Expression{}, err
+		return nil, err
 	}
 
 	switch p.current.Type {
@@ -526,13 +531,13 @@ func (p *Parser) parseComparisonExpression() (Expression, error) {
 
 		right, err := p.parsePrimaryExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
-		return Expression{
+		return &Expression{
 			Type:     ExpressionBinary,
-			Left:     &left,
-			Right:    &right,
+			Left:     left,
+			Right:    right,
 			Operator: op,
 		}, nil
 	}
@@ -541,16 +546,16 @@ func (p *Parser) parseComparisonExpression() (Expression, error) {
 }
 
 // parsePrimaryExpression parses primary expressions (paths, literals, functions)
-func (p *Parser) parsePrimaryExpression() (Expression, error) {
+func (p *Parser) parsePrimaryExpression() (*Expression, error) {
 	switch p.current.Type {
-	case TokenIdent:
-		// Path expression starting with an identifier
+	case TokenIdent, '@':
+		// Path expression starting with an identifier or '@'
 		return p.parsePathExpression()
 
 	case TokenString:
 		value := p.current.Value
 		p.nextToken()
-		return Expression{
+		return &Expression{
 			Type:  ExpressionLiteral,
 			Value: value,
 		}, nil
@@ -561,7 +566,7 @@ func (p *Parser) parsePrimaryExpression() (Expression, error) {
 
 		// Try to parse as integer first
 		if intVal, err := strconv.Atoi(value); err == nil {
-			return Expression{
+			return &Expression{
 				Type:  ExpressionLiteral,
 				Value: intVal,
 			}, nil
@@ -569,24 +574,24 @@ func (p *Parser) parsePrimaryExpression() (Expression, error) {
 
 		// Try to parse as float
 		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-			return Expression{
+			return &Expression{
 				Type:  ExpressionLiteral,
 				Value: floatVal,
 			}, nil
 		}
 
-		return Expression{}, fmt.Errorf("invalid number: %s", value)
+		return nil, fmt.Errorf("invalid number: %s", value)
 
 	case TokenTrue:
 		p.nextToken()
-		return Expression{
+		return &Expression{
 			Type:  ExpressionLiteral,
 			Value: true,
 		}, nil
 
 	case TokenFalse:
 		p.nextToken()
-		return Expression{
+		return &Expression{
 			Type:  ExpressionLiteral,
 			Value: false,
 		}, nil
@@ -595,12 +600,12 @@ func (p *Parser) parsePrimaryExpression() (Expression, error) {
 		p.nextToken()
 		expr, err := p.parsePrimaryExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
-		return Expression{
+		return &Expression{
 			Type:     ExpressionUnary,
-			Left:     &expr,
+			Left:     expr,
 			Operator: "!",
 		}, nil
 
@@ -608,85 +613,94 @@ func (p *Parser) parsePrimaryExpression() (Expression, error) {
 		// exists() function
 		p.nextToken()
 		if p.current.Type != TokenLeftParen {
-			return Expression{}, fmt.Errorf("expected '(' after 'exists' at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected '(' after 'exists' at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
 		// Parse path argument
 		pathExpr, err := p.parsePathExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
 		if p.current.Type != TokenRightParen {
-			return Expression{}, fmt.Errorf("expected ')' at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected ')' at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
-		return Expression{
+		return &Expression{
 			Type:     ExpressionFunction,
 			Function: "exists",
-			Left:     &pathExpr,
+			Left:     pathExpr,
 		}, nil
 
 	case TokenIncludes:
 		// includes() function
 		p.nextToken()
 		if p.current.Type != TokenLeftParen {
-			return Expression{}, fmt.Errorf("expected '(' after 'includes' at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected '(' after 'includes' at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
 		// Parse first argument (array/path)
 		arrayExpr, err := p.parsePathExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
 		if p.current.Type != TokenComma {
-			return Expression{}, fmt.Errorf("expected ',' in includes() at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected ',' in includes() at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
 		// Parse second argument (value to search for)
 		valueExpr, err := p.parsePrimaryExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
 		if p.current.Type != TokenRightParen {
-			return Expression{}, fmt.Errorf("expected ')' at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected ')' at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
-		return Expression{
+		return &Expression{
 			Type:     ExpressionFunction,
 			Function: "includes",
-			Left:     &arrayExpr,
-			Right:    &valueExpr,
+			Left:     arrayExpr,
+			Right:    valueExpr,
 		}, nil
 
 	case TokenLeftParen:
 		p.nextToken()
 		expr, err := p.parseExpression()
 		if err != nil {
-			return Expression{}, err
+			return nil, err
 		}
 
 		if p.current.Type != TokenRightParen {
-			return Expression{}, fmt.Errorf("expected ')' at position %d", p.current.Pos)
+			return nil, fmt.Errorf("expected ')' at position %d", p.current.Pos)
 		}
 		p.nextToken()
 
 		return expr, nil
 	}
 
-	return Expression{}, fmt.Errorf("unexpected token %s at position %d", p.current.Value, p.current.Pos)
+	return nil, fmt.Errorf("unexpected token %s at position %d", p.current.Value, p.current.Pos)
 }
 
-// parsePathExpression parses a path expression like field or field.subfield
-func (p *Parser) parsePathExpression() (Expression, error) {
+// parsePathExpression parses a path expression like @.field or field.subfield
+func (p *Parser) parsePathExpression() (*Expression, error) {
 	var path []string
+
+	// Handle JSONPath current object operator '@'
+	if p.current.Value == "@" {
+		path = append(path, "@")
+		p.nextToken()
+		if p.current.Type == TokenDot {
+			p.nextToken() // consume dot after @
+		}
+	}
 
 	for {
 		if p.current.Type == TokenIdent {
@@ -703,7 +717,7 @@ func (p *Parser) parsePathExpression() (Expression, error) {
 		}
 	}
 
-	return Expression{
+	return &Expression{
 		Type: ExpressionPath,
 		Path: path,
 	}, nil

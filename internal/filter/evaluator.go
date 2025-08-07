@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/474420502/xjson/internal/engine"
 	"github.com/474420502/xjson/internal/parser"
+	"github.com/474420502/xjson/internal/path"
 )
 
 // EvaluationContext provides context for filter expression evaluation
@@ -28,7 +28,10 @@ func NewFilterEvaluator() *FilterEvaluator {
 }
 
 // EvaluateExpression evaluates a parsed expression against the given context
-func (fe *FilterEvaluator) EvaluateExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) EvaluateExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
+	if expr == nil {
+		return false, errors.New("cannot evaluate a nil expression")
+	}
 	switch expr.Type {
 	case parser.ExpressionBinary:
 		return fe.evaluateBinaryExpression(expr, ctx)
@@ -46,35 +49,35 @@ func (fe *FilterEvaluator) EvaluateExpression(expr parser.Expression, ctx *Evalu
 }
 
 // evaluateBinaryExpression evaluates binary operations (==, !=, <, >, &&, ||)
-func (fe *FilterEvaluator) evaluateBinaryExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) evaluateBinaryExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	switch expr.Operator {
 	case "&&":
 		// Logical AND - short circuit evaluation
-		leftResult, err := fe.EvaluateExpression(*expr.Left, ctx)
+		leftResult, err := fe.EvaluateExpression(expr.Left, ctx)
 		if err != nil || !leftResult {
 			return false, err
 		}
-		return fe.EvaluateExpression(*expr.Right, ctx)
+		return fe.EvaluateExpression(expr.Right, ctx)
 
 	case "||":
 		// Logical OR - short circuit evaluation
-		leftResult, err := fe.EvaluateExpression(*expr.Left, ctx)
+		leftResult, err := fe.EvaluateExpression(expr.Left, ctx)
 		if err != nil {
 			return false, err
 		}
 		if leftResult {
 			return true, nil
 		}
-		return fe.EvaluateExpression(*expr.Right, ctx)
+		return fe.EvaluateExpression(expr.Right, ctx)
 
 	default:
 		// Comparison operators - evaluate both sides first
-		leftValue, err := fe.getExpressionValue(*expr.Left, ctx)
+		leftValue, err := fe.getExpressionValue(expr.Left, ctx)
 		if err != nil {
 			return false, err
 		}
 
-		rightValue, err := fe.getExpressionValue(*expr.Right, ctx)
+		rightValue, err := fe.getExpressionValue(expr.Right, ctx)
 		if err != nil {
 			return false, err
 		}
@@ -84,16 +87,16 @@ func (fe *FilterEvaluator) evaluateBinaryExpression(expr parser.Expression, ctx 
 }
 
 // evaluateUnaryExpression evaluates unary operations (!)
-func (fe *FilterEvaluator) evaluateUnaryExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) evaluateUnaryExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	if expr.Operator == "!" {
-		result, err := fe.EvaluateExpression(*expr.Left, ctx)
+		result, err := fe.EvaluateExpression(expr.Left, ctx)
 		return !result, err
 	}
 	return false, fmt.Errorf("unsupported unary operator: %s", expr.Operator)
 }
 
 // evaluateLiteralExpression evaluates literal values (true, false, numbers, strings)
-func (fe *FilterEvaluator) evaluateLiteralExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) evaluateLiteralExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	// Literals in boolean context: numbers (0 = false, non-0 = true), booleans as-is
 	switch v := expr.Value.(type) {
 	case bool:
@@ -108,7 +111,7 @@ func (fe *FilterEvaluator) evaluateLiteralExpression(expr parser.Expression, ctx
 }
 
 // evaluatePathExpression evaluates path expressions (@.price, $.root.field)
-func (fe *FilterEvaluator) evaluatePathExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) evaluatePathExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	value, err := fe.getExpressionValue(expr, ctx)
 	if err != nil {
 		return false, err
@@ -130,15 +133,14 @@ func (fe *FilterEvaluator) evaluatePathExpression(expr parser.Expression, ctx *E
 }
 
 // evaluateFunctionExpression evaluates function calls (exists, includes, etc.)
-func (fe *FilterEvaluator) evaluateFunctionExpression(expr parser.Expression, ctx *EvaluationContext) (bool, error) {
+func (fe *FilterEvaluator) evaluateFunctionExpression(expr *parser.Expression, ctx *EvaluationContext) (bool, error) {
 	switch expr.Function {
 	case "exists":
-		// Check if path exists
-		if len(expr.Path) == 0 {
+		if expr.Left == nil || expr.Left.Type != parser.ExpressionPath {
 			return false, errors.New("exists() requires a path argument")
 		}
-		pathStr := strings.Join(expr.Path, ".")
-		_, exists := engine.GetValueBySimplePath(ctx.CurrentItem, pathStr)
+		pathStr := strings.Join(expr.Left.Path, ".")
+		_, exists := path.GetValueBySimplePath(ctx.CurrentItem, pathStr)
 		return exists, nil
 
 	case "includes":
@@ -148,13 +150,13 @@ func (fe *FilterEvaluator) evaluateFunctionExpression(expr parser.Expression, ct
 		}
 
 		// Get the array value
-		arrayValue, err := fe.getExpressionValue(*expr.Left, ctx)
+		arrayValue, err := fe.getExpressionValue(expr.Left, ctx)
 		if err != nil {
 			return false, err
 		}
 
 		// Get the search value
-		searchValue, err := fe.getExpressionValue(*expr.Right, ctx)
+		searchValue, err := fe.getExpressionValue(expr.Right, ctx)
 		if err != nil {
 			return false, err
 		}
@@ -212,16 +214,29 @@ func (fe *FilterEvaluator) valuesEqual(a, b interface{}) bool {
 }
 
 // getExpressionValue gets the actual value of an expression (not boolean result)
-func (fe *FilterEvaluator) getExpressionValue(expr parser.Expression, ctx *EvaluationContext) (interface{}, error) {
+func (fe *FilterEvaluator) getExpressionValue(expr *parser.Expression, ctx *EvaluationContext) (interface{}, error) {
+	if expr == nil {
+		return nil, errors.New("cannot get value from a nil expression")
+	}
+
 	switch expr.Type {
 	case parser.ExpressionLiteral:
 		return expr.Value, nil
 
 	case parser.ExpressionPath:
-		pathStr := strings.Join(expr.Path, "/")
+		pathParts := expr.Path
+		var targetData interface{} = ctx.CurrentItem
 
-		// Evaluate on current item by default
-		value, _ := engine.GetValueBySimplePath(ctx.CurrentItem, pathStr)
+		// If path starts with '@', it's explicitly relative to the current item.
+		// We can strip the '@' as GetValueBySimplePath works on the provided context.
+		if len(pathParts) > 0 && pathParts[0] == "@" {
+			pathParts = pathParts[1:]
+		}
+
+		pathStr := strings.Join(pathParts, "/")
+
+		// Evaluate on current item
+		value, _ := path.GetValueBySimplePath(targetData, pathStr)
 		return value, nil
 
 	default:

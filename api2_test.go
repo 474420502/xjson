@@ -244,15 +244,20 @@ func TestResultForEachMapFilterEdgeCases(t *testing.T) {
 	if len(mapped) != 3 || mapped[0] != 2 || mapped[1] != 4 || mapped[2] != 6 {
 		t.Errorf("Map 应返回 [2, 4, 6], got %v", mapped)
 	}
-	// Filter - 注意：当前Filter实现对数组的处理与ForEach/Map不同
-	// 它直接遍历matches而不是数组元素，所以我们需要测试这个实际行为
+	// Filter should iterate over array elements, which is consistent with ForEach and Map.
 	filtered := arr.Filter(func(i int, v IResult) bool {
-		// 这里v实际上是整个数组，而不是单个元素
-		return v.IsArray() && v.Count() > 2 // 只有当数组长度>2时才保留
+		// The callback receives each element of the array.
+		// We filter for integers greater than 1.
+		return v.MustInt() > 1
 	})
-	// 由于arr本身是一个包含3个元素的数组，条件为true，所以结果应该包含原数组
-	if !filtered.IsArray() || filtered.Count() != 3 {
-		t.Errorf("Filter 应保留原数组 [1,2,3], got count=%d, isArray=%v", filtered.Count(), filtered.IsArray())
+	// The result should be a new array [2, 3].
+	if !filtered.IsArray() || filtered.Count() != 2 {
+		t.Errorf("Filter should return an array of size 2, got count=%d, isArray=%v", filtered.Count(), filtered.IsArray())
+	}
+	// Also check the content of the filtered array.
+	// The filtered result wraps the new array, so we query it.
+	if filtered.Index(0).MustInt() != 2 || filtered.Index(1).MustInt() != 3 {
+		t.Errorf("Filtered array content is not [2, 3], got [%v, %v]", filtered.Index(0).Raw(), filtered.Index(1).Raw())
 	}
 	// Empty array ForEach
 	called := false

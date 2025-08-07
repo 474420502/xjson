@@ -744,32 +744,34 @@ func (r *Result) Filter(fn func(index int, value IResult) bool) IResult {
 	if r.err != nil {
 		return &Result{err: r.err}
 	}
-	var filtered []interface{}
 
-	// If a single match is an array, filter its elements.
+	// If a single match is an array, filter its elements and return a new result containing the filtered array.
 	if len(r.matches) == 1 {
 		if arr, ok := r.matches[0].([]interface{}); ok {
+			var filteredArray []interface{} // This will be the new array
 			for i, item := range arr {
 				result := &Result{doc: r.doc, matches: []interface{}{item}}
 				if fn(i, result) {
-					filtered = append(filtered, item)
+					filteredArray = append(filteredArray, item)
 				}
 			}
-			return &Result{doc: r.doc, matches: filtered}
+			// The result should contain the new filtered array as its single match
+			return &Result{doc: r.doc, matches: []interface{}{filteredArray}}
 		}
 	}
 
-	// Default behavior: filter the matches themselves.
+	// Default behavior: filter the matches themselves. This is for when the result is already a list of matches.
+	var filteredMatches []interface{}
 	for i, match := range r.matches {
 		result := &Result{doc: r.doc, matches: []interface{}{match}}
 		if fn(i, result) {
-			filtered = append(filtered, match)
+			filteredMatches = append(filteredMatches, match)
 		}
 	}
 
 	return &Result{
 		doc:     r.doc,
-		matches: filtered,
+		matches: filteredMatches,
 	}
 }
 

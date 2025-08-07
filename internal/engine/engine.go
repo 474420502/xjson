@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
+	"reflect"
 	"strings"
 
+	"github.com/474420502/xjson/internal/filter"
 	"github.com/474420502/xjson/internal/parser"
 	"github.com/474420502/xjson/internal/scanner"
 )
@@ -168,9 +169,17 @@ func (e *Engine) applyPredicates(ctx *MaterializedContext, inputs []interface{},
 					nextResults = append(nextResults, arr[start:end]...)
 				}
 			case parser.PredicateExpression:
-				filtered, _ := ApplyFilter(arr, pred, ctx.data)
-				for _, item := range filtered {
-					nextResults = append(nextResults, item)
+				// Use the new FilterEvaluator
+				evaluator := filter.NewFilterEvaluator()
+				for _, item := range arr {
+					ctx := &filter.EvaluationContext{
+						CurrentItem: item,
+						RootData:    ctx.data,
+					}
+					match, err := evaluator.EvaluateExpression(pred.Expression, ctx)
+					if err == nil && match {
+						nextResults = append(nextResults, item)
+					}
 				}
 			}
 		}
@@ -179,198 +188,38 @@ func (e *Engine) applyPredicates(ctx *MaterializedContext, inputs []interface{},
 	return results
 }
 
-// LEGACY/DEPRECATED FUNCTIONS BELOW
-// These functions support the old dot-notation path and will be removed.
-
-func ApplyFilter(items []interface{}, predicate parser.Predicate, rootData interface{}) (map[int]interface{}, error) {
-	if predicate.Type != parser.PredicateExpression {
-		return nil, errors.New("not an expression predicate")
-	}
-	results := make(map[int]interface{})
-	for i, item := range items {
-		match, err := evaluateFilterExpression(predicate.Expression, item, rootData)
-		if err != nil {
-			// In a real scenario, you might want to handle errors differently
-			continue
-		}
-		if match {
-			results[i] = item
-		}
-	}
-	return results, nil
+// LEGACY/DEPRECATED FUNCTIONS
+func (e *Engine) ExecuteOnRaw(data []byte, query *parser.Query) ([]Match, error) {
+	return nil, errors.New("ExecuteOnRaw is deprecated")
 }
 
-func evaluateFilterExpression(expr parser.Expression, currentItem, rootData interface{}) (bool, error) {
-	switch expr.Type {
-	case parser.ExpressionBinary:
-		return evaluateBinaryExpression(expr, currentItem, rootData)
-	case parser.ExpressionLiteral:
-		return toBooleanValue(expr.Value), nil
-	case parser.ExpressionPath:
-		val, err := getFilterExpressionValue(expr, currentItem, rootData)
-		if err != nil {
-			return false, nil
-		}
-		return toBooleanValue(val), nil
-	default:
-		return false, fmt.Errorf("unsupported expression type: %v", expr.Type)
-	}
+type QueryContext struct {
+	scanner *scanner.Scanner
+	data    []byte
 }
 
-func evaluateBinaryExpression(expr parser.Expression, currentItem, rootData interface{}) (bool, error) {
-	leftVal, err := getFilterExpressionValue(*expr.Left, currentItem, rootData)
-	if err != nil {
-		return false, err
-	}
-
-	if expr.Operator == "&&" {
-		if !toBooleanValue(leftVal) {
-			return false, nil
-		}
-		rightVal, err := getFilterExpressionValue(*expr.Right, currentItem, rootData)
-		if err != nil {
-			return false, err
-		}
-		return toBooleanValue(rightVal), nil
-	}
-	if expr.Operator == "||" {
-		if toBooleanValue(leftVal) {
-			return true, nil
-		}
-		rightVal, err := getFilterExpressionValue(*expr.Right, currentItem, rootData)
-		if err != nil {
-			return false, err
-		}
-		return toBooleanValue(rightVal), nil
-	}
-
-	rightVal, err := getFilterExpressionValue(*expr.Right, currentItem, rootData)
-	if err != nil {
-		return false, err
-	}
-	return compareFilterValues(leftVal, rightVal, expr.Operator)
+func (e *Engine) getRootData(ctx *QueryContext) interface{} {
+	return nil
 }
 
-func getFilterExpressionValue(expr parser.Expression, currentItem, rootData interface{}) (interface{}, error) {
-	switch expr.Type {
-	case parser.ExpressionLiteral:
-		return expr.Value, nil
-	case parser.ExpressionPath:
-		path := expr.Path
-		var startNode interface{}
-		if len(path) > 0 {
-			if path[0] == "@" {
-				startNode = currentItem
-				path = path[1:]
-			} else if path[0] == "$" {
-				startNode = rootData
-				path = path[1:]
-			}
-		}
-		val, found := GetValueBySimplePath(startNode, strings.Join(path, "."))
-		if !found {
-			return nil, errors.New("path not found")
-		}
-		return val, nil
-	default:
-		return nil, fmt.Errorf("unsupported expression type for value retrieval: %v", expr.Type)
-	}
+func ApplyFilter(items []interface{}, predicate parser.Predicate, rootData interface{}) ([]interface{}, error) {
+	return nil, errors.New("ApplyFilter is deprecated")
 }
 
-func compareFilterValues(left, right interface{}, operator string) (bool, error) {
-	if left == nil || right == nil {
-		if operator == "==" {
-			return left == right, nil
-		}
-		if operator == "!=" {
-			return left != right, nil
-		}
-		return false, nil
-	}
-
-	leftFloat, leftIsNum := convertToFloat(left)
-	rightFloat, rightIsNum := convertToFloat(right)
-
-	if leftIsNum && rightIsNum {
-		switch operator {
-		case "==":
-			return leftFloat == rightFloat, nil
-		case "!=":
-			return leftFloat != rightFloat, nil
-		case ">":
-			return leftFloat > rightFloat, nil
-		case ">=":
-			return leftFloat >= rightFloat, nil
-		case "<":
-			return leftFloat < rightFloat, nil
-		case "<=":
-			return leftFloat <= rightFloat, nil
-		}
-	}
-
-	leftStr := fmt.Sprintf("%v", left)
-	rightStr := fmt.Sprintf("%v", right)
-	if operator == "==" {
-		return leftStr == rightStr, nil
-	}
-	if operator == "!=" {
-		return leftStr != rightStr, nil
-	}
-
-	return false, fmt.Errorf("unsupported operator %s for types %T and %T", operator, left, right)
+func ParseSimplePath(path string) []string {
+	return strings.Split(path, ".")
 }
 
-func convertToFloat(v interface{}) (float64, bool) {
-	switch val := v.(type) {
-	case float64:
-		return val, true
-	case int:
-		return float64(val), true
-	case int64:
-		return float64(val), true
-	case json.Number:
-		f, err := val.Float64()
-		return f, err == nil
-	case string:
-		f, err := strconv.ParseFloat(val, 64)
-		return f, err == nil
-	}
-	return 0, false
+func ConvertValue(value interface{}, targetType reflect.Type) (interface{}, error) {
+	return nil, errors.New("ConvertValue is deprecated")
 }
 
-func toBooleanValue(v interface{}) bool {
-	switch val := v.(type) {
-	case bool:
-		return val
-	case string:
-		return val != ""
-	case float64:
-		return val != 0
-	case int, int64:
-		return val != 0
-	case nil:
-		return false
-	default:
-		return true
-	}
+func GetValueBySimplePathFromRaw(data []byte, path string) (interface{}, bool) {
+	return nil, false
 }
 
-func GetValueBySimplePath(data interface{}, path string) (interface{}, bool) {
-	parts := strings.Split(path, ".")
-	current := data
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		if obj, ok := current.(map[string]interface{}); ok {
-			if val, exists := obj[part]; exists {
-				current = val
-			} else {
-				return nil, false
-			}
-		} else {
-			return nil, false
-		}
-	}
-	return current, true
+func parseJSONValue(data []byte) (interface{}, error) {
+	var v interface{}
+	err := json.Unmarshal(data, &v)
+	return v, err
 }
