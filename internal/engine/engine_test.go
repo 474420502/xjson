@@ -1,50 +1,129 @@
 package engine
 
 import (
-	"encoding/json"
+	"errors"
 	"testing"
 
-	"github.com/474420502/xjson/internal/parser"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestEngine(t *testing.T) {
-	jsonData := `{
-		"store": {
-			"book": [
-				{ "category": "reference", "author": "Nigel Rees", "price": 8.95 },
-				{ "category": "fiction", "author": "Evelyn Waugh", "price": 12.99 }
-			],
-			"bicycle": { "color": "red", "price": 19.95 }
-		}
-	}`
-	var data interface{}
-	json.Unmarshal([]byte(jsonData), &data)
+func TestErrorChaining(t *testing.T) {
+	// Create an invalid node
+	invalid := NewInvalidNode("root", errors.New("initial error"))
 
-	engine := NewEngine()
+	// Chain multiple operations
+	result := invalid.Get("key1").Index(0).Query("path")
 
-	// Test simple path
-	query, _ := parser.NewParser("/store/bicycle/color").Parse()
-	matches, err := engine.ExecuteOnMaterialized(data, query)
-	if err != nil {
-		t.Fatalf("Failed to execute simple path query: %v", err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("Expected 1 match, got %d", len(matches))
-	}
-	if matches[0].Value != "red" {
-		t.Errorf("Expected 'red', got %v", matches[0].Value)
-	}
+	// Verify that the result is still invalid
+	assert.False(t, result.IsValid())
 
-	// Test path with array index
-	query, _ = parser.NewParser("/store/book[1]/author").Parse()
-	matches, err = engine.ExecuteOnMaterialized(data, query)
-	if err != nil {
-		t.Fatalf("Failed to execute path with index: %v", err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("Expected 1 match, got %d", len(matches))
-	}
-	if matches[0].Value != "Nigel Rees" {
-		t.Errorf("Expected 'Nigel Rees', got %v", matches[0].Value)
-	}
+	// Verify that the original error is preserved
+	assert.EqualError(t, result.Error(), "initial error")
+}
+
+func TestGet(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	obj := NewObjectNode(
+		map[string]Node{
+			"key1": NewStringNode("value1", ".key1", &funcs),
+		},
+		"",
+		&funcs,
+	)
+
+	// Test successful Get
+	child := obj.Get("key1")
+	assert.True(t, child.IsValid())
+	assert.Equal(t, "value1", child.String())
+
+	// Test failed Get
+	child = obj.Get("nonexistent")
+	assert.False(t, child.IsValid())
+	assert.Equal(t, ErrNotFound, child.Error())
+}
+
+func TestIndex(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	arr := NewArrayNode(
+		[]Node{
+			NewStringNode("value0", "[0]", &funcs),
+		},
+		"",
+		&funcs,
+	)
+
+	// Test successful Index
+	child := arr.Index(0)
+	assert.True(t, child.IsValid())
+	assert.Equal(t, "value0", child.String())
+
+	// Test failed Index (out of bounds)
+	child = arr.Index(1)
+	assert.False(t, child.IsValid())
+	assert.Equal(t, ErrIndexOutOfBounds, child.Error())
+}
+
+func TestInvalidOperations(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	arr := NewArrayNode(nil, "", &funcs)
+	obj := NewObjectNode(nil, "", &funcs)
+
+	// Test Get on array
+	assert.Equal(t, ErrTypeAssertion, arr.Get("key").Error())
+
+	// Test Index on object
+	assert.Equal(t, ErrTypeAssertion, obj.Index(0).Error())
+}
+
+func TestQuery(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	root := NewObjectNode(
+		map[string]Node{
+			"a": NewObjectNode(
+				map[string]Node{
+					"b": NewArrayNode(
+						[]Node{
+							NewStringNode("c", ".a.b[0]", &funcs),
+						},
+						".a.b",
+						&funcs,
+					),
+				},
+				".a",
+				&funcs,
+			),
+		},
+		"",
+		&funcs,
+	)
+
+	// Test successful query
+	result := root.Query("a.b[0]")
+	assert.True(t, result.IsValid())
+	assert.Equal(t, "c", result.String())
+
+	// Test nonexistent path
+	result = root.Query("a.b[1]")
+	assert.False(t, result.IsValid())
+}
+
+func TestFuncs(t *testing.T) {
+	// Create a root node with a shared funcs map
+	funcs := make(map[string]func(Node) Node)
+	root := NewObjectNode(make(map[string]Node), "", &funcs)
+
+	// Register a function
+	root.Func("double", func(n Node) Node {
+		return NewNumberNode(n.Float()*2, "", &funcs)
+	})
+
+	// Call the function
+	result := root.CallFunc("double")
+	assert.True(t, result.IsValid())
+	assert.Equal(t, 0.0, result.Float())
+
+	// Remove the function
+	root.RemoveFunc("double")
+	result = root.CallFunc("double")
+	assert.False(t, result.IsValid())
 }
