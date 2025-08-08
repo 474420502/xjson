@@ -24,16 +24,8 @@ const (
 	InvalidNode
 )
 
-// Node represents a single element within a JSON structure. It provides a unified
-// interface for accessing and manipulating JSON data, regardless of its underlying type
-// (object, array, string, etc.).
-//
-// All traversal and manipulation methods are designed to be chainable. If an operation
-// fails (e.g., accessing a non-existent key or calling a method on an
-// inappropriate node type), the node becomes an InvalidNode, and subsequent
-// chained calls will do nothing. The error is recorded internally and can be
-// retrieved at the end of the chain using the Error() method.
-type Node interface {
+// Accessor provides methods for accessing node properties and values.
+type Accessor interface {
 	// Type returns the data type of the node.
 	Type() NodeType
 
@@ -65,7 +57,10 @@ type Node interface {
 	// The query syntax supports key access, array indexing, and function calls.
 	// Example: "users.0.name"
 	Query(path string) Node
+}
 
+// Iterable provides methods for iterating over node collections.
+type Iterable interface {
 	// ForEach iterates over the elements of an array or the key-value pairs of an object.
 	// For arrays, the callback receives the index and the element node.
 	// For objects, the callback receives the key (as a string) and the value node.
@@ -74,7 +69,10 @@ type Node interface {
 	// Len returns the number of elements in an array or object.
 	// It returns 0 for all other node types.
 	Len() int
+}
 
+// Converter provides methods for converting node values to different types.
+type Converter interface {
 	// String returns the string value of the node.
 	// For non-string types, it returns a string representation of the value.
 	String() string
@@ -126,22 +124,6 @@ type Node interface {
 	// - For NullNode, it returns nil.
 	Interface() interface{}
 
-	// Filter applies a function to each element in a collection (array or object values)
-	// and returns a new Node containing only the elements for which the function returns true.
-	Filter(fn func(Node) bool) Node
-
-	// Map applies a transformation function to each element in a collection (array or object values)
-	// and returns a new Node (typically an array) containing the results of the transformations.
-	Map(fn func(Node) interface{}) Node
-
-	// Set sets the value for a given key in an object node.
-	// If the node is not an object, it returns an InvalidNode.
-	Set(key string, value interface{}) Node
-
-	// Append adds a new value to an array node.
-	// If the node is not an array, it returns an InvalidNode.
-	Append(value interface{}) Node
-
 	// RawFloat returns the underlying float64 value of a number node without creating a new Node object.
 	// It returns the value and a boolean indicating success.
 	RawFloat() (float64, bool)
@@ -157,6 +139,28 @@ type Node interface {
 	// Contains checks if an array node contains a specific string value.
 	// Returns false if the node is not an array or does not contain the value.
 	Contains(value string) bool
+}
+
+// Mutator provides methods for modifying node values.
+type Mutator interface {
+	// Set sets the value for a given key in an object node.
+	// If the node is not an object, it returns an InvalidNode.
+	Set(key string, value interface{}) Node
+
+	// Append adds a new value to an array node.
+	// If the node is not an array, it returns an InvalidNode.
+	Append(value interface{}) Node
+}
+
+// Functional provides higher-order functional methods for node manipulation.
+type Functional interface {
+	// Filter applies a function to each element in a collection (array or object values)
+	// and returns a new Node containing only the elements for which the function returns true.
+	Filter(fn func(Node) bool) Node
+
+	// Map applies a transformation function to each element in a collection (array or object values)
+	// and returns a new Node (typically an array) containing the results of the transformations.
+	Map(fn func(Node) interface{}) Node
 
 	// Func registers a custom function that can be called during queries.
 	Func(name string, fn func(Node) Node) Node
@@ -166,5 +170,24 @@ type Node interface {
 
 	// RemoveFunc removes a registered custom function.
 	RemoveFunc(name string) Node
-	GetFuncs() *map[string]func(Node) Node // This will need to be updated to core.Node
+	
+	// GetFuncs returns the registered custom functions.
+	GetFuncs() *map[string]func(Node) Node
+}
+
+// Node represents a single element within a JSON structure. It provides a unified
+// interface for accessing and manipulating JSON data, regardless of its underlying type
+// (object, array, string, etc.).
+//
+// All traversal and manipulation methods are designed to be chainable. If an operation
+// fails (e.g., accessing a non-existent key or calling a method on an
+// inappropriate node type), the node becomes an InvalidNode, and subsequent
+// chained calls will do nothing. The error is recorded internally and can be
+// retrieved at the end of the chain using the Error() method.
+type Node interface {
+	Accessor
+	Iterable
+	Converter
+	Mutator
+	Functional
 }

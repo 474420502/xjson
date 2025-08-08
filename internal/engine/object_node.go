@@ -1,0 +1,228 @@
+package engine
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+type objectNode struct {
+	baseNode
+	value map[string]Node
+}
+
+func NewObjectNode(value map[string]Node, path string, funcs *map[string]func(Node) Node) Node {
+	if funcs == nil {
+		funcs = &map[string]func(Node) Node{} // Initialize if nil (for root)
+	}
+	return &objectNode{value: value, baseNode: baseNode{path: path, funcs: funcs}}
+}
+
+func (n *objectNode) Type() NodeType { return ObjectNode }
+func (n *objectNode) Get(key string) Node {
+	if n.err != nil {
+		return n
+	}
+	if child, ok := n.value[key]; ok {
+		return child
+	}
+	return NewInvalidNode(n.path+"."+key, ErrNotFound)
+}
+func (n *objectNode) Index(i int) Node {
+	return NewInvalidNode(n.path+fmt.Sprintf("[%d]", i), ErrTypeAssertion)
+}
+func (n *objectNode) Query(path string) Node {
+	ops, err := ParseQuery(path)
+	if err != nil {
+		return NewInvalidNode(n.path, err)
+	}
+	return EvaluateQuery(n, ops)
+}
+func (n *objectNode) ForEach(iterator func(interface{}, Node)) {
+	if n.err != nil {
+		return
+	}
+	for k, v := range n.value {
+		iterator(k, v)
+	}
+}
+func (n *objectNode) Len() int {
+	if n.err != nil {
+		return 0
+	}
+	return len(n.value)
+}
+func (n *objectNode) String() string {
+	if n.err != nil {
+		return ""
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		n.setError(err)
+		return ""
+	}
+	buf := new(bytes.Buffer)
+	err = json.Compact(buf, data)
+	if err != nil {
+		n.setError(err)
+		return ""
+	}
+	return buf.String()
+}
+func (n *objectNode) MustString() string {
+	if n.err != nil {
+		panic(n.err)
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		panic(err) // Panic if marshaling fails
+	}
+	buf := new(bytes.Buffer)
+	err = json.Compact(buf, data)
+	if err != nil {
+		panic(err) // Panic if compacting fails
+	}
+	return buf.String()
+}
+func (n *objectNode) Float() float64      { return 0 }
+func (n *objectNode) MustFloat() float64  { panic(ErrTypeAssertion) }
+func (n *objectNode) Int() int64          { return 0 }
+func (n *objectNode) MustInt() int64      { panic(ErrTypeAssertion) }
+func (n *objectNode) Bool() bool          { return false }
+func (n *objectNode) MustBool() bool      { panic(ErrTypeAssertion) }
+func (n *objectNode) Time() time.Time     { return time.Time{} }
+func (n *objectNode) MustTime() time.Time { panic(ErrTypeAssertion) }
+func (n *objectNode) Array() []Node       { return nil }
+func (n *objectNode) MustArray() []Node   { panic(ErrTypeAssertion) }
+func (n *objectNode) Interface() interface{} {
+	if n.err != nil {
+		return nil
+	}
+	m := make(map[string]interface{}, len(n.value))
+	for k, v := range n.value {
+		m[k] = v.Interface()
+	}
+	return m
+}
+func (n *objectNode) Func(name string, fn func(Node) Node) Node {
+	if n.err != nil {
+		return n
+	}
+	(*n.funcs)[name] = fn
+	return n
+}
+func (n *objectNode) CallFunc(name string) Node {
+	if n.err != nil {
+		return n
+	}
+	if fn, ok := (*n.funcs)[name]; ok {
+		return fn(n)
+	}
+	return NewInvalidNode(n.path, fmt.Errorf("function %s not found", name))
+}
+func (n *objectNode) RemoveFunc(name string) Node {
+	if n.err != nil {
+		return n
+	}
+	delete(*n.funcs, name)
+	return n
+}
+
+// New methods for objectNode
+func (n *objectNode) Filter(fn func(Node) bool) Node {
+	if n.err != nil {
+		return n
+	}
+	// For an object, filter applies to its values.
+	// Returns a new array node containing filtered values.
+	filteredNodes := make([]Node, 0, len(n.value))
+	for _, child := range n.value {
+		if fn(child) {
+			filteredNodes = append(filteredNodes, child)
+		}
+	}
+	return NewArrayNode(filteredNodes, n.path, n.funcs)
+}
+
+func (n *objectNode) Map(fn func(Node) interface{}) Node {
+	if n.err != nil {
+		return n
+	}
+	// For an object, map applies to its values.
+	// Returns a new array node containing mapped values.
+	mappedValues := make([]Node, 0, len(n.value))
+	for _, child := range n.value {
+		mappedValue := fn(child)
+		// Convert mappedValue back to Node
+		newNode, err := NewNodeFromInterface(mappedValue, n.path, n.funcs)
+		if err != nil {
+			return NewInvalidNode(n.path, err)
+		}
+		mappedValues = append(mappedValues, newNode)
+	}
+	return NewArrayNode(mappedValues, n.path, n.funcs)
+}
+
+func (n *objectNode) Set(key string, value interface{}) Node {
+	if n.err != nil {
+		return n
+	}
+	newNode, err := NewNodeFromInterface(value, n.path+"."+key, n.funcs)
+	if err != nil {
+		n.setError(err)
+		return n
+	}
+	n.value[key] = newNode
+	return n
+}
+
+func (n *objectNode) Append(value interface{}) Node {
+	n.setError(ErrTypeAssertion) // Cannot append to an object
+	return n
+}
+
+func (n *objectNode) Raw() string {
+	if n.raw != nil {
+		return *n.raw
+	}
+	if n.err != nil {
+		return ""
+	}
+	data, err := json.Marshal(n.Interface())
+	if err != nil {
+		n.setError(err)
+		return ""
+	}
+	return string(data)
+}
+
+func (n *objectNode) RawFloat() (float64, bool) {
+	return 0, false
+}
+
+func (n *objectNode) RawString() (string, bool) {
+	return "", false
+}
+
+func (n *objectNode) Strings() []string {
+	return nil
+}
+
+func (n *objectNode) Contains(value string) bool {
+	return false
+}
+
+func (n *objectNode) AsMap() map[string]Node {
+	if n.err != nil {
+		return nil
+	}
+	return n.value
+}
+
+func (n *objectNode) MustAsMap() map[string]Node {
+	if n.err != nil {
+		panic(n.err)
+	}
+	return n.value
+}

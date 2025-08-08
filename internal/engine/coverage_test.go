@@ -965,7 +965,7 @@ func TestQueryAndParseCoverage(t *testing.T) {
 	// Test buildNode function coverage with edge cases
 	t.Run("BuildNodeEdgeCases", func(t *testing.T) {
 		funcs := make(map[string]func(Node) Node)
-		
+
 		// Test with unknown type (should create invalid node)
 		node := buildNode(struct{}{}, "", &funcs, nil)
 		assert.Equal(t, InvalidNode, node.Type())
@@ -975,7 +975,7 @@ func TestQueryAndParseCoverage(t *testing.T) {
 
 func TestNodeMethodCoverage(t *testing.T) {
 	funcs := make(map[string]func(Node) Node)
-	
+
 	// Test ObjectNode methods not fully covered
 	t.Run("ObjectNodeMethods", func(t *testing.T) {
 		obj := NewObjectNode(map[string]Node{
@@ -1125,7 +1125,7 @@ func TestNodeMethodCoverage(t *testing.T) {
 
 func TestArrayNodeSetMethod(t *testing.T) {
 	funcs := make(map[string]func(Node) Node)
-	
+
 	t.Run("SetOnArrayOfObjects", func(t *testing.T) {
 		// Create array of objects
 		arr := NewArrayNode([]Node{
@@ -1136,7 +1136,7 @@ func TestArrayNodeSetMethod(t *testing.T) {
 		// Set a new field on all objects
 		result := arr.Set("newField", "newValue")
 		assert.True(t, result.IsValid())
-		
+
 		// Check that the field was added to all objects
 		assert.Equal(t, "newValue", arr.Index(0).Get("newField").String())
 		assert.Equal(t, "newValue", arr.Index(1).Get("newField").String())
@@ -1173,7 +1173,7 @@ func TestArrayNodeSetMethod(t *testing.T) {
 
 func TestArrayNodeStringsMethod(t *testing.T) {
 	funcs := make(map[string]func(Node) Node)
-	
+
 	t.Run("StringsOnStringArray", func(t *testing.T) {
 		arr := NewArrayNode([]Node{
 			NewStringNode("first", "", &funcs),
@@ -1200,7 +1200,7 @@ func TestArrayNodeStringsMethod(t *testing.T) {
 
 func TestArrayNodeContainsMethod(t *testing.T) {
 	funcs := make(map[string]func(Node) Node)
-	
+
 	t.Run("ContainsInStringArray", func(t *testing.T) {
 		arr := NewArrayNode([]Node{
 			NewStringNode("first", "", &funcs),

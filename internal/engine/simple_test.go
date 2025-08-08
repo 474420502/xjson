@@ -13,7 +13,7 @@ func TestSimpleMustBool(t *testing.T) {
 			t.Error("MustBool did not panic")
 		}
 	}()
-	
+
 	strNode.MustBool()
 	t.Error("Should have panicked")
 }
