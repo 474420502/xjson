@@ -1,104 +1,228 @@
-# XJSON (v1.1) - 项目计划
 
-**本文件是 XJSON v1.1 开发的唯一真实来源。所有任务、进度和未来更新都将在此处跟踪。**
+**好的，作为一名Go技术专家，在认真阅读了您提供的全部源码（**xjson.go**, **internal/core/types.go**, **internal/engine/engine.go**, **internal/engine/node.go**, **internal/engine/parser.go**, **internal/engine/query.go**）和 **readme.md** 设计文档后，我发现代码实现与文档描述之间存在一些关键性的不一致和潜在的BUG。**
 
-## 阶段一：核心引擎实现
+**总的来说，这个库的设计思想（统一Node、链式调用、路径函数）非常出色，但目前的实现细节存在一些问题，可能导致意外行为、性能陷阱和安全漏洞。**
 
-*此阶段专注于构建库的基础组件。*
+**以下是我发现的错误和问题，按严重性和关联性排序：**
 
-- [x] **任务 1.1：统一 `Node` 模型**
-    - [x] 在 `xjson.go` 中定义 `Node` 接口。
-    - [x] 在 `internal/engine/node.go` 中为所有 JSON 数据类型（对象、数组、字符串等）实现具体的 `Node` 类型。
-    - [x] 确保所有节点类型共享一个通用的内部结构，以实现一致的错误处理和操作。
-- [x] **任务 1.2：解析器实现**
-    - [x] 在 `internal/parser/parser.go` 中实现核心解析逻辑。
-    - [x] 暴露公共函数 `xjson.Parse(string) (Node, error)`。
-  - [x] 编写单元测试（`internal/parser/parser_test.go`），覆盖有效的 JSON 和常见的语法错误。
-- [x] **任务 1.3：可链式错误处理**
-  - [x] 在内部 `Node` 结构体中添加一个 `error` 字段。
-  - [x] 修改所有 `Node` 方法（`Get`、`Index` 等），以便在失败时检查并设置内部错误。
-  - [x] 实现 `Error() error` 方法以返回第一个记录的错误。
-  - [x] 编写单元测试以验证链式调用中的错误传播。
+### 1. 查询解析器(Query Parser)的严重缺陷
 
-## 阶段二：查询与遍历
+**这是最严重的问题，它直接导致 **readme.md** 中核心的路径函数语法无法按预期工作。**
 
-*此阶段实现主要的数据检索机制。*
+* **问题描述**: **engine/query.go** 中的 **ParseQuery** 函数无法正确解析 **readme.md** 中声称支持的 **.../[@func]/...** 语法。解析器要求函数调用 **[@func]** 必须依附于一个键名，例如 **key[@func]**。独立的 **[@func]** 会被忽略或导致解析错误。
+* **代码证据**: 在 **internal/engine/query.go** 的 **ParseQuery** 函数中：
 
-- [x] **任务 2.1：基本查询方法**
-  - [x] 为对象实现 `Get(key string)`。
-  - [x] 为数组实现 `Index(i int)`。
-  - [x] 确保无效操作（例如，对数组使用 `Get`）会记录适当的错误。
-  - [x] 为成功和失败的情况编写全面的单元测试。
-- [x] **任务 2.2：路径查询引擎 (`Query`)**
-  - [x] 在 `internal/query/parser.go` 中创建路径解析器。
-  - [x] 在 `internal/query/evaluator.go` 中创建路径评估器，以在 `Node` 树上执行已解析的路径。
-  - [x] 支持嵌套路径 (`/a/b/c`) 和数组索引 (`/a/0/b`)。
-  - [x] 确保不存在的路径返回一个空的 `Node` 并记录 `NotFound` 错误。
+  **Generated go**
 
-## 阶段三：路径函数
+```
+        // ...
+  if strings.Contains(part, "[") {
+      openBracketIndex := strings.Index(part, "[")
+      keyPart := part[:openBracketIndex] // 提取'['之前的部分作为key
+      if keyPart != "" { // <--- 问题点: 如果'['之前没有key (即 part = "[@func]"), 则不会进入这个分支
+          ops = append(ops, Operation{Type: OpGet, Key: keyPart})
+      }
+      remaining := part[openBracketIndex:]
+      // ... 后续逻辑处理 [...] 中的内容
+  // ...
+  ```    当查询路径为 `/store/books[@cheap]/title` 时，`books[@cheap]` 这个部分(part)会被正确解析。但如果路径是 `/store/books/[@cheap]/title` (按readme的 `/path/[@func]` 语法)，`part` 会是 `[@cheap]`，`keyPart` 为空，导致 `@cheap` 函数调用被忽略。
+    
+```
 
-*此阶段引入 XJSON 的核心扩展功能。*
+* **影响**: 核心功能与文档严重不符。用户无法使用文档中宣传的 **.../[@func]/...** 语法。
 
-- [x] **任务 3.1：函数管理 API**
-  - [x] 实现 `Func(name, fn)`、`CallFunc(name)` 和 `RemoveFunc(name)`。
-  - [x] 在 `Node` 实现中添加一个函数注册表（例如 `map[string]func(Node) Node`）。
-  - [x] 测试函数注册、调用和移除的完整生命周期。
-- [x] **任务 3.2：路径语法扩展**
-  - [x] 更新 `internal/query/parser.go` 中的路径解析器，以识别 `[@funcName]` 语法。
-- [x] **任务 3.3：函数执行逻辑**
-  - [x] 将函数执行集成到查询评估器（`internal/query/evaluator.go`）中。
-  - [x] 编写结合路径查询和函数调用的集成测试。
+### 2. **Raw()** 方法的性能陷阱和误导性描述
 
-## 阶段四：流式操作
+**readme.md** 强调了性能，但 **Raw()** 方法的实现对于子节点来说存在巨大的性能问题。
 
-*此阶段添加函数式数据处理能力。*
+* **问题描述**: **Raw()** 方法只有在根节点上才能高效返回原始的JSON字符串。对于任何子节点（通过 **Get**, **Index**, **Query** 等方法获得），调用 **Raw()** 会触发一次代价高昂的 **json.Marshal** 操作，将节点对象重新序列化为JSON字符串。这与用户期望的“原始(raw)”字符串完全相反，并且会产生大量不必要的内存分配和计算。
+* **代码证据**:
 
-- [x] **任务 4.1：实现 `Filter`**
-  - [x] 实现 `Filter(fn func(Node) bool) Node` 以从集合中选择元素。
-- [x] **任务 4.2：实现 `Map`**
-  - [x] 实现 `Map(fn func(Node) interface{}) Node` 用于数据转换。
-- [x] **任务 4.3：实现 `ForEach`**
-  - [x] 实现 `ForEach(fn func(int, Node))` 用于带副作用的迭代。
+  * **在 **internal/engine/parser.go** 的 **buildObjectNode** 和 **buildArrayNode** 中，**raw** 字符串只被设置在了根节点上：**
 
-## 阶段五：写入操作
+  Generated go
 
-*此阶段添加数据修改功能。*
+  ```
+        // buildObjectNode
+  // Children nodes don't get the raw string...
+  nodes[k] = buildNode(v, path+"."+k, funcs, nil) // raw is nil for children
+  node.(*objectNode).raw = raw // Set raw string on the root object node
 
-- [x] **任务 5.1：实现 `Set`**
-  - [x] 实现 `Set(key string, value interface{}) Node` 以添加或更新对象字段。
-- [x] **任务 5.2：实现 `Append`**
-  - [x] 实现 `Append(value interface{}) Node` 以向数组添加元素。
+  ```
 
-## 阶段六：性能优化
+  IGNORE_WHEN_COPYING_START
 
-*此阶段专注于提高执行速度和减少内存开销。*
+  ** content_copy ** download
 
-- [x] **任务 6.1：原始值访问**
-  - [x] 实现 `RawString()`、`RawFloat()` 等方法，以实现零拷贝数据访问。
-- [x] **任务 6.2：路径缓存**
-  - [x] 实现一个内部缓存，用于缓存已编译的查询路径，以加快重复调用的速度。
-- [x] **任务 6.3：基准测试**
-  - [x] 创建一个全面的基准测试套件（`benchmark_test.go`），以衡量关键操作的性能。
+  Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+* **在 **internal/engine/node.go** 的 **objectNode.Raw()** 和 **arrayNode.Raw()** 实现中：**
 
-## 阶段七：文档和示例
+  Generated go
 
-*此阶段确保库文档完善且易于使用。*
+  ```
+        func (n *objectNode) Raw() string {
+      if n.raw != "" { // 只有根节点才满足此条件
+          return n.raw
+      }
+      if n.err != nil {
+          return ""
+      }
+      // 对子节点会执行以下昂贵操作
+      data, err := json.Marshal(n.Interface()) 
+      // ...
+      return string(data)
+  }
 
-- [x] **任务 7.1：API 文档**
-  - [x] 为所有公共 API 编写完整的 GoDoc 注释。
-- [x] **任务 7.2：最终确定 `readme.md`**
-  - [x] 更新快速入门和所有代码示例，以反映最终的 API。
-  - [x] 用更详细的示例扩展“用例”部分。
-- [x] **任务 7.3：创建示例测试**
-  - [x] 创建 `examples_test.go`，包含演示关键功能的可运行示例。
+  ```
 
-## 阶段八：最终测试和发布
+  IGNORE_WHEN_COPYING_START
 
-*此阶段确保库稳定可靠。*
+  ** content_copy ** download
 
-- [x] **任务 8.1：完整的单元测试覆盖率**
-  - [x] 确保所有组件都有详尽的单元测试。
-- [x] **任务 8.2：集成测试**
-  - [x] 测试涉及多个组件协同工作的复杂场景。
-- [x] **任务 8.3：错误处理测试**
-  - [x] 验证所有可预见的失败场景都能被优雅地处理。
+  Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+* **影响**: 性能声明具有误导性。在需要获取子节点JSON片段的场景中，性能会急剧下降，这与库宣称的“性能导向”相悖。
+
+### 3. **arrayNode.Set()** 方法的逻辑混乱和潜在BUG
+
+**对数组节点调用 **Set** 方法的逻辑非常复杂且不直观，容易导致意外的结果或错误。**
+
+* **问题描述**: **arrayNode.Set()** 的意图似乎是“对数组中的每一个对象元素，都设置一个键值对”。但其实现方式是：
+
+  * **第一次循环：检查数组中是否有非对象节点，或者节点本身是否无效。如果有，就设置错误并返回。**
+* **第二次循环：对所有子节点执行 **Set** 操作。**
+* **第三次循环（隐含在第二次循环后）：再次检查子节点是否有错误并传播。**
+  这种实现不仅效率低下（多次循环），而且行为难以预测。如果数组中部分是对象，部分不是，它会报错而不是只修改对象。
+* **代码证据**: **internal/engine/node.go** 中的 **arrayNode.Set** 方法。
+
+  **Generated go**
+
+```
+        func (n *arrayNode) Set(key string, value interface{}) Node {
+      // ...
+      // 第一次循环检查
+      for _, child := range n.value {
+          if !child.IsValid() { ... }
+          if child.Type() != ObjectNode { 
+              n.setError(ErrTypeAssertion) // 只要有一个不是对象就报错
+              return n
+          }
+      }
+      // 第二次循环设置
+      for _, child := range n.value {
+          child.Set(key, value)
+          if !child.IsValid() { // 错误传播逻辑
+              n.setError(child.Error())
+              return n
+          }
+      }
+      return n
+  }
+    
+```
+
+  IGNORE_WHEN_COPYING_START
+
+  ** content_copy ** download
+
+   Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+
+* **影响**: 功能不符合最小意外原则。用户可能期望 **Set** 只对数组中符合条件的元素（对象）生效，而不是在遇到第一个不匹配的元素时就让整个操作失败。
+
+### 4. **arrayNode.CallFunc()** 的双重行为逻辑
+
+**arrayNode** 在调用函数时存在一个未在文档中说明的复杂回退（fallback）逻辑。
+
+* **问题描述**: 当在数组节点上调用函数时，代码首先尝试将整个数组节点传递给函数。如果函数返回的结果不是一个数组或无效节点，它会“回退”到将函数逐个应用于数组的每个元素，然后将结果收集到一个新数组中。
+* **代码证据**: **internal/engine/node.go** 中的 **arrayNode.CallFunc** 方法。
+
+  **Generated go**
+
+```
+        func (n *arrayNode) CallFunc(name string) Node {
+      // ...
+      if fn, ok := n.funcs[name]; ok {
+          // 第一次尝试：对整个数组应用函数
+          res := fn(n)
+          if res != nil {
+              if res.Type() == ArrayNode || res.Type() == InvalidNode {
+                  return res // 行为1: 函数自己处理了整个数组
+              }
+          }
+          // 第二次尝试（Fallback）：逐个应用
+          var results []Node
+          for _, child := range n.value {
+              results = append(results, fn(child))
+          }
+          return NewArrayNode(results, n.path, n.funcs) // 行为2
+      }
+      // ...
+  }
+    
+```
+
+  IGNORE_WHEN_COPYING_START
+
+  ** content_copy ** download
+
+   Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+
+* **影响**: API行为不确定。函数的实际行为取决于其返回值的类型，这使得函数编写和使用都变得复杂。一个函数可能在一种情况下按预期工作，但在另一种情况下会触发完全不同的回退逻辑，导致意外结果。**readme.md** 完全没有提及这种双重性。
+
+### 5. **Strings()** 和 **Contains()** 在非字符串数组上的行为
+
+* **问题描述**: 当在 **arrayNode** 上调用 **Strings()** 时，如果数组中包含任何非字符串元素，它会设置一个内部错误并返回 **nil**。然而，**Contains()** 方法在遇到非字符串元素时只是简单地跳过，并最终返回 **false**（除非找到了匹配的字符串）。这两种行为不一致。
+* **代码证据**:
+
+  * **arrayNode.Strings()**:
+
+  Generated go
+
+  ```
+        // ...
+  else {
+      // If not all elements are strings, return nil or an error
+      n.setError(errors.New("array contains non-string elements"))
+      return nil
+  }
+
+  ```
+
+  IGNORE_WHEN_COPYING_START
+
+  ** content_copy ** download
+
+  Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+* **arrayNode.Contains()**:
+
+  Generated go
+
+  ```
+        for _, child := range n.value {
+      if child.Type() == StringNode && child.String() == value {
+          return true // 只检查字符串，忽略其他类型
+      }
+  }
+  return false
+
+  ```
+
+  IGNORE_WHEN_COPYING_START
+
+  ** content_copy ** download
+
+  Use code [with caution](https://support.google.com/legal/answer/13505487). **Go**IGNORE_WHEN_COPYING_END
+* **影响**: API行为不一致。用户可能会期望 **Contains** 在遇到非字符串元素时也像 **Strings** 一样发出错误信号。
+
+### 总结与建议
+
+**readme.md** 描绘了一个非常现代和强大的JSON处理库，但当前的源码实现尚未完全兑现这些承诺。
+
+ **修复建议**:
+
+* **重写查询解析器**: 必须修复 **ParseQuery** 以正确支持 **[@func]** 语法。建议使用更健壮的解析技术（例如状态机或解析器组合子）代替简单的 **strings.Split**。
+* **重新设计 **Raw()**: 为了性能，子节点必须能够高效地访问其对应的原始JSON片段。这通常需要记录每个节点在原始输入字符串中的起始和结束位置（索引），而不是重新序列化。这是实现“懒解析”和高性能的关键。**
+* **简化 **arrayNode.Set()**: 它的行为应该更简单、更可预测。一个更合理的实现是：只对数组中类型为 **ObjectNode** 的元素执行 **Set** 操作，并忽略所有其他类型的元素。**
+* **明确 **CallFunc** 行为**: 移除 **arrayNode.CallFunc** 的回退逻辑。规定函数要么处理集合（推荐），要么通过 **Map** 方法显式地应用于每个元素。单一、明确的行为比隐藏的复杂性要好。
+* **统一错误处理逻辑**: 统一 **Strings()** 和 **Contains()** 等方法的行为，决定在遇到类型不匹配的元素时是报错还是忽略。
+
+**在完成这些关键修复之前，**readme.md** 中的一些核心功能和性能声明是不准确的。**
