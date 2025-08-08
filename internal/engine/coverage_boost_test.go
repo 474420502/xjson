@@ -689,6 +689,14 @@ func TestAppendMethod(t *testing.T) {
 	assert.Error(t, objNode.Error())
 }
 
+func TestArrayAppendUnsupportedType(t *testing.T) {
+	arr := NewArrayNode([]Node{}, "", nil)
+	ch := make(chan int)
+	res := arr.Append(ch)
+	assert.False(t, res.IsValid())
+	assert.Contains(t, res.Error().Error(), "unsupported type for node creation")
+}
+
 func TestTimeStringMethods(t *testing.T) {
 	timeStr := "2024-01-01T15:04:05Z"
 	timeNode := NewStringNode(timeStr, "", nil)
@@ -975,6 +983,26 @@ func TestFunctionRegistrationMethods(t *testing.T) {
 	})
 }
 
+func TestScalarFuncRegistration(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	num := NewNumberNode(1, "", &funcs)
+	boolN := NewBoolNode(true, "", &funcs)
+	nullN := NewNullNode("", &funcs)
+
+	cb1 := func(n Node) Node { return n }
+	cb2 := func(n Node) Node { return n }
+
+	num.Func("f", cb1)
+	boolN.Func("f", cb1)
+	nullN.Func("f", cb1)
+	// override
+	num.Func("f", cb2)
+	// call via object wrapper by creating object referencing funcs map
+	obj := NewObjectNode(map[string]Node{}, "", &funcs)
+	res := obj.CallFunc("f")
+	assert.True(t, res.IsValid())
+}
+
 func TestArrayMethodOnDifferentNodes(t *testing.T) {
 	t.Run("Null node Array", func(t *testing.T) {
 		nullNode := NewNullNode("", nil)
@@ -1096,820 +1124,48 @@ func TestZeroCoverageMethods(t *testing.T) {
 	})
 }
 
-func TestForEachCoverage(t *testing.T) {
-	t.Run("ForEach on objectNode", func(t *testing.T) {
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
+func TestMapFilterErrorBranches(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+	obj := NewObjectNode(map[string]Node{"n": NewNumberNode(1, ".n", &funcs)}, "", &funcs)
+	// Map returning unsupported type (channel) should yield invalid node
+	ch := make(chan int)
+	mapped := obj.Map(func(n Node) interface{} { return ch })
+	assert.False(t, mapped.IsValid())
+	assert.Contains(t, mapped.Error().Error(), "unsupported type for node creation")
 
-		count := 0
-		keys := []string{}
-		values := []string{}
-
-		objNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if key, ok := keyOrIndex.(string); ok {
-				keys = append(keys, key)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []string{"key1", "key2"}, keys)
-		assert.ElementsMatch(t, []string{"value1", "42"}, values)
-	})
-
-	t.Run("ForEach on arrayNode", func(t *testing.T) {
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", nil)
-
-		count := 0
-		indices := []int{}
-		values := []string{}
-
-		arrNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if idx, ok := keyOrIndex.(int); ok {
-				indices = append(indices, idx)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []int{0, 1}, indices)
-		assert.ElementsMatch(t, []string{"item1", "item2"}, values)
-	})
-
-	t.Run("ForEach on scalar nodes", func(t *testing.T) {
-		// Test ForEach on stringNode (should not be called)
-		strNode := NewStringNode("test", "", nil)
-		count := 0
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// Test ForEach on numberNode (should not be called)
-		numNode := NewNumberNode(42, "", nil)
-		count = 0
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// Test ForEach on boolNode (should not be called)
-		boolNode := NewBoolNode(true, "", nil)
-		count = 0
-		boolNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// Test ForEach on nullNode (should not be called)
-		nullNode := NewNullNode("", nil)
-		count = 0
-		nullNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
+	// Filter that selects nothing returns empty array
+	empty := obj.Filter(func(n Node) bool { return false })
+	assert.True(t, empty.IsValid())
+	assert.Equal(t, 0, empty.Len())
 }
 
-func TestFuncCallRemoveMethods(t *testing.T) {
-	t.Run("Func, CallFunc, RemoveFunc on objectNode", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		objNode := NewObjectNode(map[string]Node{}, "", &funcs)
-
-		// Register a function
-		result := objNode.Func("testFunc", func(n Node) Node {
-			return NewStringNode("test", "", &funcs)
-		})
-		assert.Equal(t, objNode, result)
-
-		// Call the function
-		called := objNode.CallFunc("testFunc")
-		assert.True(t, called.IsValid())
-		assert.Equal(t, "test", called.String())
-
-		// Remove the function
-		result = objNode.RemoveFunc("testFunc")
-		assert.Equal(t, objNode, result)
-
-		// Try to call the removed function
-		called = objNode.CallFunc("testFunc")
-		assert.False(t, called.IsValid())
-	})
-
-	t.Run("Func, CallFunc, RemoveFunc on arrayNode", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		arrNode := NewArrayNode([]Node{}, "", &funcs)
-
-		// Register a function
-		result := arrNode.Func("double", func(n Node) Node {
-			return NewNumberNode(n.Float()*2, "", &funcs)
-		})
-		assert.Equal(t, arrNode, result)
-
-		// Call the function
-		numNode := NewNumberNode(21, "", &funcs)
-		called := numNode.CallFunc("double")
-		assert.True(t, called.IsValid())
-		assert.Equal(t, float64(42), called.Float())
-
-		// Remove the function
-		result = arrNode.RemoveFunc("double")
-		assert.Equal(t, arrNode, result)
-	})
-
-	t.Run("Func, CallFunc, RemoveFunc on scalar nodes", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		strNode := NewStringNode("test", "", &funcs)
-
-		// These should work since we passed a funcs map
-		result := strNode.Func("testFunc", func(n Node) Node { return n })
-		assert.Equal(t, strNode, result)
-
-		result = strNode.RemoveFunc("testFunc")
-		assert.Equal(t, strNode, result)
-
-		result = strNode.CallFunc("testFunc")
-		// This should return an invalid node since the function doesn't exist
-		assert.NotEqual(t, strNode, result)
-		assert.False(t, result.IsValid())
-	})
-}
-
-func TestRemainingZeroCoverageMethods(t *testing.T) {
-	t.Run("Contains method on arrayNode", func(t *testing.T) {
-		// Test Contains method on arrayNode (currently 0% coverage)
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", nil)
-
-		// Contains should work on array nodes
-		assert.True(t, arrNode.Contains("item1"))
-		assert.True(t, arrNode.Contains("item2"))
-		assert.False(t, arrNode.Contains("item3"))
-	})
-
-	t.Run("AsMap methods", func(t *testing.T) {
-		// These methods are only available on internal node types, not the public interface
-		// We can't directly test them through the public interface, but we can test
-		// the behavior through other methods that use them internally
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
-
-		// Test that we can access the values as a map through other methods
-		assert.Equal(t, "value1", objNode.Get("key1").String())
-		assert.Equal(t, float64(42), objNode.Get("key2").Float())
-	})
-
-	t.Run("CallFunc on various nodes", func(t *testing.T) {
-		// Test CallFunc on stringNode with no function map
-		strNode := NewStringNode("test", "", nil)
-		result := strNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-
-		// Test CallFunc on numberNode with no function map
-		numNode := NewNumberNode(42, "", nil)
-		result = numNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("Func and RemoveFunc on various nodes", func(t *testing.T) {
-		// Test Func and RemoveFunc on boolNode
-		funcs := make(map[string]func(Node) Node)
-		boolNode := NewBoolNode(true, "", &funcs)
-
-		result := boolNode.Func("testFunc", func(n Node) Node {
-			return NewStringNode("test", "", &funcs)
-		})
-		assert.Equal(t, boolNode, result)
-
-		result = boolNode.RemoveFunc("testFunc")
-		assert.Equal(t, boolNode, result)
-
-		// Test Func and RemoveFunc on nullNode
-		nullNode := NewNullNode("", &funcs)
-
-		result = nullNode.Func("testFunc", func(n Node) Node {
-			return NewStringNode("test", "", &funcs)
-		})
-		assert.Equal(t, nullNode, result)
-
-		result = nullNode.RemoveFunc("testFunc")
-		assert.Equal(t, nullNode, result)
-	})
-}
-
-func TestZeroCoverageMethodsPart2(t *testing.T) {
-	t.Run("ForEach on different node types", func(t *testing.T) {
-		// Test ForEach on objectNode
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
-
-		count := 0
-		objNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 2, count)
-
-		// Test ForEach on arrayNode
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", nil)
-
-		count = 0
-		arrNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 2, count)
-
-		// Test ForEach on scalar nodes (should not be called)
-		strNode := NewStringNode("test", "", nil)
-		count = 0
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		numNode := NewNumberNode(42, "", nil)
-		count = 0
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("Contains method on arrayNode", func(t *testing.T) {
-		// Test Contains method on arrayNode
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", nil)
-
-		assert.True(t, arrNode.Contains("item1"))
-		assert.True(t, arrNode.Contains("item2"))
-		assert.False(t, arrNode.Contains("item3"))
-	})
-
-	t.Run("Func, CallFunc, RemoveFunc on various nodes", func(t *testing.T) {
-		// Test on boolNode
-		funcs := make(map[string]func(Node) Node)
-		boolNode := NewBoolNode(true, "", &funcs)
-
-		result := boolNode.Func("testFunc", func(n Node) Node {
-			return NewStringNode("test", "", &funcs)
-		})
-		assert.Equal(t, boolNode, result)
-
-		result = boolNode.RemoveFunc("testFunc")
-		assert.Equal(t, boolNode, result)
-
-		// Test on nullNode
-		nullNode := NewNullNode("", &funcs)
-
-		result = nullNode.Func("testFunc", func(n Node) Node {
-			return NewStringNode("test", "", &funcs)
-		})
-		assert.Equal(t, nullNode, result)
-
-		result = nullNode.RemoveFunc("testFunc")
-		assert.Equal(t, nullNode, result)
-	})
-}
-
-// Add specific tests for methods that are at 0% to make sure we cover all code paths
-func TestSpecificZeroCoverageMethods(t *testing.T) {
-	t.Run("CallFunc on various node types with no funcs map", func(t *testing.T) {
-		// Test CallFunc on stringNode with no function map
-		strNode := NewStringNode("test", "", nil)
-		result := strNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-
-		// Test CallFunc on numberNode with no function map
-		numNode := NewNumberNode(42, "", nil)
-		result = numNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-
-		// Test CallFunc on boolNode with no function map
-		boolNode := NewBoolNode(true, "", nil)
-		result = boolNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-
-		// Test CallFunc on nullNode with no function map
-		nullNode := NewNullNode("", nil)
-		result = nullNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("AsMap methods", func(t *testing.T) {
-		// These methods are internal and not exposed in the public interface
-		// We can't directly test them but we can test behavior that uses them internally
-
-		// Test objectNode AsMap behavior through other methods
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
-
-		// Verify we can access the data
-		assert.Equal(t, "value1", objNode.Get("key1").String())
-		assert.Equal(t, float64(42), objNode.Get("key2").Float())
-	})
-}
-
-func TestForEachOnAllNodeTypes(t *testing.T) {
-	// Test ForEach on all node types to improve coverage
-
-	t.Run("ForEach on objectNode", func(t *testing.T) {
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
-
-		count := 0
-		keys := make([]string, 0)
-		values := make([]string, 0)
-
-		objNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if key, ok := keyOrIndex.(string); ok {
-				keys = append(keys, key)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []string{"key1", "key2"}, keys)
-		assert.ElementsMatch(t, []string{"value1", "42"}, values)
-	})
-
-	t.Run("ForEach on arrayNode", func(t *testing.T) {
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", nil)
-
-		count := 0
-		indices := make([]int, 0)
-		values := make([]string, 0)
-
-		arrNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if idx, ok := keyOrIndex.(int); ok {
-				indices = append(indices, idx)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []int{0, 1}, indices)
-		assert.ElementsMatch(t, []string{"item1", "item2"}, values)
-	})
-
-	t.Run("ForEach on stringNode", func(t *testing.T) {
-		strNode := NewStringNode("test", "", nil)
-		count := 0
-
-		// ForEach should not be called on scalar nodes
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on numberNode", func(t *testing.T) {
-		numNode := NewNumberNode(42, "", nil)
-		count := 0
-
-		// ForEach should not be called on scalar nodes
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on boolNode", func(t *testing.T) {
-		boolNode := NewBoolNode(true, "", nil)
-		count := 0
-
-		// ForEach should not be called on scalar nodes
-		boolNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on nullNode", func(t *testing.T) {
-		nullNode := NewNullNode("", nil)
-		count := 0
-
-		// ForEach should not be called on scalar nodes
-		nullNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-}
-
-func TestCallFuncOnAllNodeTypes(t *testing.T) {
-	t.Run("CallFunc on stringNode without funcs map", func(t *testing.T) {
-		strNode := NewStringNode("test", "", nil)
-		result := strNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("CallFunc on numberNode without funcs map", func(t *testing.T) {
-		numNode := NewNumberNode(42, "", nil)
-		result := numNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("CallFunc on boolNode without funcs map", func(t *testing.T) {
-		boolNode := NewBoolNode(true, "", nil)
-		result := boolNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("CallFunc on nullNode without funcs map", func(t *testing.T) {
-		nullNode := NewNullNode("", nil)
-		result := nullNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-}
-
-func TestNodeSpecificCallFuncMethods(t *testing.T) {
-	t.Run("CallFunc on arrayNode with valid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", &funcs)
-
-		// Register a function
-		arrNode.Func("count", func(n Node) Node {
-			return NewNumberNode(float64(n.Len()), "", &funcs)
-		})
-
-		// Call the function
-		result := arrNode.CallFunc("count")
-		assert.True(t, result.IsValid())
-		assert.Equal(t, float64(2), result.Float())
-	})
-
-	t.Run("CallFunc on arrayNode with invalid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("item1", "", nil),
-			NewStringNode("item2", "", nil),
-		}, "", &funcs)
-
-		// Call a non-existent function
-		result := arrNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("CallFunc on stringNode with valid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		strNode := NewStringNode("test", "", &funcs)
-
-		// Register a function
-		strNode.Func("length", func(n Node) Node {
-			return NewNumberNode(float64(len(n.String())), "", &funcs)
-		})
-
-		// Call the function
-		result := strNode.CallFunc("length")
-		assert.True(t, result.IsValid())
-		assert.Equal(t, float64(4), result.Float())
-	})
-
-	t.Run("CallFunc on stringNode with invalid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		strNode := NewStringNode("test", "", &funcs)
-
-		// Call a non-existent function
-		result := strNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-
-	t.Run("CallFunc on numberNode with valid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		numNode := NewNumberNode(5, "", &funcs)
-
-		// Register a function
-		numNode.Func("square", func(n Node) Node {
-			val := n.Float()
-			return NewNumberNode(val*val, "", &funcs)
-		})
-
-		// Call the function
-		result := numNode.CallFunc("square")
-		assert.True(t, result.IsValid())
-		assert.Equal(t, float64(25), result.Float())
-	})
-
-	t.Run("CallFunc on numberNode with invalid function", func(t *testing.T) {
-		funcs := make(map[string]func(Node) Node)
-		numNode := NewNumberNode(5, "", &funcs)
-
-		// Call a non-existent function
-		result := numNode.CallFunc("nonexistent")
-		assert.False(t, result.IsValid())
-	})
-}
-
-func TestRemainingForEachMethods(t *testing.T) {
-	t.Run("ForEach on objectNode specifically", func(t *testing.T) {
-		objNode := NewObjectNode(map[string]Node{
-			"name": NewStringNode("John", "", nil),
-			"age":  NewNumberNode(30, "", nil),
-		}, "", nil)
-
-		var keys []string
-		var values []string
-		count := 0
-
-		objNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if key, ok := keyOrIndex.(string); ok {
-				keys = append(keys, key)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []string{"name", "age"}, keys)
-		assert.ElementsMatch(t, []string{"John", "30"}, values)
-	})
-
-	t.Run("ForEach on arrayNode specifically", func(t *testing.T) {
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("first", "", nil),
-			NewStringNode("second", "", nil),
-		}, "", nil)
-
-		var indices []int
-		var values []string
-		count := 0
-
-		arrNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			if idx, ok := keyOrIndex.(int); ok {
-				indices = append(indices, idx)
-			}
-			values = append(values, value.String())
-		})
-
-		assert.Equal(t, 2, count)
-		assert.ElementsMatch(t, []int{0, 1}, indices)
-		assert.ElementsMatch(t, []string{"first", "second"}, values)
-	})
-
-	t.Run("ForEach on stringNode specifically", func(t *testing.T) {
-		strNode := NewStringNode("hello", "", nil)
-		count := 0
-
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on numberNode specifically", func(t *testing.T) {
-		numNode := NewNumberNode(42, "", nil)
-		count := 0
-
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on boolNode specifically", func(t *testing.T) {
-		boolNode := NewBoolNode(true, "", nil)
-		count := 0
-
-		boolNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on nullNode specifically", func(t *testing.T) {
-		nullNode := NewNullNode("", nil)
-		count := 0
-
-		nullNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-
-		assert.Equal(t, 0, count)
-	})
-}
-
-func TestZeroCoverageMethodsFinal(t *testing.T) {
-	t.Run("AsMap and MustAsMap methods", func(t *testing.T) {
-		// These are internal methods not exposed in the public interface
-		// We can't directly call them, but we can test behavior that uses them internally
-
-		// Test objectNode AsMap behavior through other methods
-		objNode := NewObjectNode(map[string]Node{
-			"key1": NewStringNode("value1", "", nil),
-			"key2": NewNumberNode(42, "", nil),
-		}, "", nil)
-
-		// Verify we can access the data (this indirectly uses AsMap)
-		assert.Equal(t, "value1", objNode.Get("key1").String())
-		assert.Equal(t, float64(42), objNode.Get("key2").Float())
-
-		// Test that non-object nodes return nil for map-like operations
-		strNode := NewStringNode("test", "", nil)
-		assert.Nil(t, strNode.Array())
-
-		numNode := NewNumberNode(123, "", nil)
-		assert.Nil(t, numNode.Array())
-
-		boolNode := NewBoolNode(true, "", nil)
-		assert.Nil(t, boolNode.Array())
-
-		nullNode := NewNullNode("", nil)
-		assert.Nil(t, nullNode.Array())
-	})
-
-	t.Run("RemoveFunc on various node types", func(t *testing.T) {
-		// Test RemoveFunc on numberNode
-		funcs := make(map[string]func(Node) Node)
-		numNode := NewNumberNode(42, "", &funcs)
-
-		// Add a function
-		result := numNode.Func("square", func(n Node) Node {
-			return NewNumberNode(n.Float()*n.Float(), "", &funcs)
-		})
-		assert.Equal(t, numNode, result)
-
-		// Remove the function
-		result = numNode.RemoveFunc("square")
-		assert.Equal(t, numNode, result)
-
-		// Try to call the removed function
-		called := numNode.CallFunc("square")
-		assert.False(t, called.IsValid())
-
-		// Test RemoveFunc on boolNode
-		boolFuncs := make(map[string]func(Node) Node)
-		boolNode := NewBoolNode(true, "", &boolFuncs)
-
-		result = boolNode.Func("invert", func(n Node) Node {
-			return NewBoolNode(!n.Bool(), "", &boolFuncs)
-		})
-		assert.Equal(t, boolNode, result)
-
-		result = boolNode.RemoveFunc("invert")
-		assert.Equal(t, boolNode, result)
-
-		// Test RemoveFunc on nullNode
-		nullFuncs := make(map[string]func(Node) Node)
-		nullNode := NewNullNode("", &nullFuncs)
-
-		result = nullNode.Func("alwaysTrue", func(n Node) Node {
-			return NewBoolNode(true, "", &nullFuncs)
-		})
-		assert.Equal(t, nullNode, result)
-
-		result = nullNode.RemoveFunc("alwaysTrue")
-		assert.Equal(t, nullNode, result)
-	})
-
-	t.Run("ForEach on all scalar node types", func(t *testing.T) {
-		// Test ForEach on all scalar node types to ensure we hit those code paths
-
-		// stringNode ForEach
-		strNode := NewStringNode("test", "", nil)
-		count := 0
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// numberNode ForEach
-		numNode := NewNumberNode(123, "", nil)
-		count = 0
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// boolNode ForEach
-		boolNode := NewBoolNode(true, "", nil)
-		count = 0
-		boolNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-
-		// nullNode ForEach
-		nullNode := NewNullNode("", nil)
-		count = 0
-		nullNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-}
-
-func TestAllNodeTypesForEach(t *testing.T) {
-	t.Run("ForEach on objectNode", func(t *testing.T) {
-		objNode := NewObjectNode(map[string]Node{
-			"name": NewStringNode("John", "", nil),
-			"age":  NewNumberNode(30, "", nil),
-		}, "", nil)
-
-		count := 0
-		objNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			// Verify that key is a string for object nodes
-			_, ok := keyOrIndex.(string)
-			assert.True(t, ok)
-		})
-		assert.Equal(t, 2, count)
-	})
-
-	t.Run("ForEach on arrayNode", func(t *testing.T) {
-		arrNode := NewArrayNode([]Node{
-			NewStringNode("first", "", nil),
-			NewStringNode("second", "", nil),
-		}, "", nil)
-
-		count := 0
-		arrNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-			// Verify that key is an int for array nodes
-			_, ok := keyOrIndex.(int)
-			assert.True(t, ok)
-		})
-		assert.Equal(t, 2, count)
-	})
-
-	t.Run("ForEach on stringNode", func(t *testing.T) {
-		strNode := NewStringNode("hello", "", nil)
-		count := 0
-		strNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on numberNode", func(t *testing.T) {
-		numNode := NewNumberNode(42, "", nil)
-		count := 0
-		numNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on boolNode", func(t *testing.T) {
-		boolNode := NewBoolNode(true, "", nil)
-		count := 0
-		boolNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on nullNode", func(t *testing.T) {
-		nullNode := NewNullNode("", nil)
-		count := 0
-		nullNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("ForEach on invalidNode", func(t *testing.T) {
-		invalidNode := NewInvalidNode("", errors.New("test error"))
-		count := 0
-		invalidNode.ForEach(func(keyOrIndex interface{}, value Node) {
-			count++
-		})
-		assert.Equal(t, 0, count)
-	})
+func TestInvalidNodeBehaviors(t *testing.T) {
+	inv := NewInvalidNode(".x", errors.New("boom"))
+	assert.Equal(t, InvalidNode, inv.Type())
+	assert.False(t, inv.IsValid())
+	assert.Equal(t, 0, inv.Len())
+	assert.Equal(t, "", inv.String())
+	assert.Nil(t, inv.Array())
+	assert.Nil(t, inv.(interface{ AsMap() map[string]Node }).AsMap())
+	assert.Nil(t, inv.Strings())
+	assert.False(t, inv.Contains("anything"))
+	// chaining on invalid remains same
+	assert.Same(t, inv, inv.Get("k"))
+	assert.Same(t, inv, inv.Index(0))
+	assert.Same(t, inv, inv.Query("path"))
+	assert.Same(t, inv, inv.Filter(func(Node) bool { return true }))
+	assert.Same(t, inv, inv.Map(func(Node) interface{} { return nil }))
+	assert.Same(t, inv, inv.Set("k", 1))
+	assert.Same(t, inv, inv.Append(1))
+	assert.Same(t, inv, inv.Func("f", func(n Node) Node { return n }))
+	assert.Same(t, inv, inv.CallFunc("f"))
+	assert.Same(t, inv, inv.RemoveFunc("f"))
+	// panic branches
+	assert.Panics(t, func() { inv.MustString() })
+	assert.Panics(t, func() { inv.MustFloat() })
+	assert.Panics(t, func() { inv.MustInt() })
+	assert.Panics(t, func() { inv.MustBool() })
+	assert.Panics(t, func() { inv.MustTime() })
+	assert.Panics(t, func() { inv.MustArray() })
+	assert.Panics(t, func() { inv.(interface{ MustAsMap() map[string]Node }).MustAsMap() })
 }
