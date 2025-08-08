@@ -106,3 +106,54 @@ func TestQuery(t *testing.T) {
 	result = root.Query("a.b[1]")
 	assert.False(t, result.IsValid())
 }
+
+func TestEvaluateQueryCoverage(t *testing.T) {
+	funcs := make(map[string]func(Node) Node)
+
+	t.Run("WildcardOnNonObjectOrArray", func(t *testing.T) {
+		node := NewStringNode("test", "", &funcs)
+		ops, _ := ParseQuery("*")
+		result := EvaluateQuery(node, ops)
+		assert.False(t, result.IsValid())
+	})
+
+	t.Run("WildcardOnArrayWithoutNestedArrays", func(t *testing.T) {
+		node := NewArrayNode([]Node{NewStringNode("a", "", &funcs)}, "", &funcs)
+		ops, _ := ParseQuery("*")
+		result := EvaluateQuery(node, ops)
+		assert.True(t, result.IsValid())
+		assert.Equal(t, ArrayNode, result.Type())
+	})
+
+	t.Run("OperationOnInvalidNode", func(t *testing.T) {
+		node := NewInvalidNode("", errors.New("invalid"))
+		ops, _ := ParseQuery("a")
+		result := EvaluateQuery(node, ops)
+		assert.False(t, result.IsValid())
+	})
+
+	t.Run("FlattenOnNonArray", func(t *testing.T) {
+		localFuncs := make(map[string]func(Node) Node)
+		localFuncs["someFunc"] = func(n Node) Node { return n }
+		node := NewObjectNode(nil, "", &localFuncs)
+		ops, _ := ParseQuery("[@someFunc]")
+		result := EvaluateQuery(node, ops)
+		assert.True(t, result.IsValid())
+	})
+
+	t.Run("FlattenOnArrayWithNoNestedArrays", func(t *testing.T) {
+		localFuncs := make(map[string]func(Node) Node)
+		localFuncs["someFunc"] = func(n Node) Node { return n }
+		node := NewArrayNode([]Node{NewStringNode("a", "", &localFuncs)}, "", &localFuncs)
+		ops, _ := ParseQuery("[@someFunc]")
+		result := EvaluateQuery(node, ops)
+		assert.True(t, result.IsValid())
+	})
+
+	t.Run("MalformedPath", func(t *testing.T) {
+		_, err := ParseQuery("a[b")
+		assert.Error(t, err)
+		_, err = ParseQuery("a[0]extra")
+		assert.Error(t, err)
+	})
+}
