@@ -18,6 +18,27 @@ const (
 	InvalidNode
 )
 
+func (t NodeType) String() string {
+	switch t {
+	case ObjectNode:
+		return "ObjectNode"
+	case ArrayNode:
+		return "ArrayNode"
+	case StringNode:
+		return "StringNode"
+	case NumberNode:
+		return "NumberNode"
+	case BoolNode:
+		return "BoolNode"
+	case NullNode:
+		return "NullNode"
+	case InvalidNode:
+		return "InvalidNode"
+	default:
+		return "UnknownNode"
+	}
+}
+
 // Node represents a single element within a JSON structure.
 type Node interface {
 	Type() NodeType

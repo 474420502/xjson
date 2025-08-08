@@ -107,6 +107,46 @@ func TestQuery(t *testing.T) {
 	assert.False(t, result.IsValid())
 }
 
+func TestEvaluateQueryEdgeCases(t *testing.T) {
+	t.Run("FlattenWithInvalidNodes", func(t *testing.T) {
+		// Test case where flattenIfNestedArrays encounters an invalid node
+		nestedArray := NewArrayNode([]Node{
+			NewArrayNode([]Node{
+				NewStringNode("a", "", nil),
+				NewInvalidNode("", errors.New("invalid node")),
+			}, "", nil),
+			NewStringNode("b", "", nil),
+		}, "", nil)
+		ops, _ := ParseQuery("*")
+		result := EvaluateQuery(nestedArray, ops)
+		assert.True(t, result.IsValid())
+		assert.Equal(t, 2, result.Len(), "Should contain 2 valid nodes after flattening")
+		assert.Equal(t, "a", result.Index(0).String())
+		assert.Equal(t, "b", result.Index(1).String())
+	})
+
+	t.Run("GetOnArrayWithSomeInvalid", func(t *testing.T) {
+		// Test Get on an array where some elements don't have the key
+		arrayNode := NewArrayNode([]Node{
+			NewObjectNode(map[string]Node{"key": NewStringNode("v1", "", nil)}, "", nil),
+			NewObjectNode(map[string]Node{"other": NewStringNode("v2", "", nil)}, "", nil),
+			NewObjectNode(map[string]Node{"key": NewStringNode("v3", "", nil)}, "", nil),
+		}, "", nil)
+		ops, _ := ParseQuery("key")
+		result := EvaluateQuery(arrayNode, ops)
+		assert.True(t, result.IsValid())
+		assert.Equal(t, 2, result.Len(), "Should only return nodes that had the key")
+		assert.Equal(t, "v1", result.Index(0).String())
+		assert.Equal(t, "v3", result.Index(1).String())
+	})
+
+	t.Run("ParseInvalidIndex", func(t *testing.T) {
+		_, err := ParseQuery("[abc]")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid array index")
+	})
+}
+
 func TestEvaluateQueryCoverage(t *testing.T) {
 	funcs := make(map[string]func(Node) Node)
 
