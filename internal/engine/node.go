@@ -1090,6 +1090,36 @@ func NewNodeFromInterface(value interface{}, path string, funcs *map[string]func
 			obj[key] = node
 		}
 		return NewObjectNode(obj, path, funcs), nil
+	case map[string]int:
+		converted := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			converted[k] = val
+		}
+		return NewNodeFromInterface(converted, path, funcs)
+	case map[string]int64:
+		converted := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			converted[k] = val
+		}
+		return NewNodeFromInterface(converted, path, funcs)
+	case map[string]float64:
+		converted := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			converted[k] = val
+		}
+		return NewNodeFromInterface(converted, path, funcs)
+	case map[string]string:
+		converted := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			converted[k] = val
+		}
+		return NewNodeFromInterface(converted, path, funcs)
+	case map[string]bool:
+		converted := make(map[string]interface{}, len(v))
+		for k, val := range v {
+			converted[k] = val
+		}
+		return NewNodeFromInterface(converted, path, funcs)
 	case []interface{}:
 		arr := make([]Node, len(v))
 		for i, val := range v {

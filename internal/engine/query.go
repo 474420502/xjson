@@ -78,6 +78,35 @@ func ParseQuery(path string) ([]Operation, error) {
 func EvaluateQuery(node Node, ops []Operation) Node {
 	currentNode := node
 
+	// helper to flatten one level if children are arrays
+	flattenIfNestedArrays := func(n Node) Node {
+		if n.Type() != ArrayNode {
+			return n
+		}
+		var hasArray bool
+		n.ForEach(func(_ interface{}, v Node) {
+			if v.Type() == ArrayNode {
+				hasArray = true
+			}
+		})
+		if !hasArray {
+			return n
+		}
+		var flat []Node
+		n.ForEach(func(_ interface{}, v Node) {
+			if v.Type() == ArrayNode {
+				v.ForEach(func(_ interface{}, inner Node) {
+					if inner.IsValid() {
+						flat = append(flat, inner)
+					}
+				})
+			} else if v.IsValid() {
+				flat = append(flat, v)
+			}
+		})
+		return NewArrayNode(flat, n.Path(), n.GetFuncs())
+	}
+
 	for _, op := range ops {
 		if !currentNode.IsValid() {
 			return currentNode
@@ -85,7 +114,26 @@ func EvaluateQuery(node Node, ops []Operation) Node {
 
 		switch op.Type {
 		case OpGet:
+			if op.Key == "*" {
+				switch currentNode.Type() {
+				case ObjectNode:
+					var nextNodes []Node
+					currentNode.ForEach(func(_ interface{}, v Node) {
+						if v.IsValid() {
+							nextNodes = append(nextNodes, v)
+						}
+					})
+					currentNode = NewArrayNode(nextNodes, currentNode.Path(), currentNode.GetFuncs())
+				case ArrayNode:
+					// flatten nested arrays when wildcard applied
+					currentNode = flattenIfNestedArrays(currentNode)
+				default:
+					return NewInvalidNode(currentNode.Path(), fmt.Errorf("wildcard '*' not applicable to node type"))
+				}
+				continue
+			}
 			if currentNode.Type() == ArrayNode {
+				// map Get over elements
 				var nextNodes []Node
 				currentNode.ForEach(func(_ interface{}, elementNode Node) {
 					child := elementNode.Get(op.Key)
@@ -98,13 +146,10 @@ func EvaluateQuery(node Node, ops []Operation) Node {
 				currentNode = currentNode.Get(op.Key)
 			}
 		case OpIndex:
-			// OpIndex should only apply to the current node if it's an array.
-			// It doesn't map over the array, it selects from it.
 			currentNode = currentNode.Index(op.Index)
 		case OpFunc:
-			// The function is applied to the current node as a whole,
-			// regardless of whether it's an array or an object.
-			// The function itself contains the logic for how to process the node.
+			// ensure flatten before applying function if we have nested arrays
+			currentNode = flattenIfNestedArrays(currentNode)
 			currentNode = currentNode.CallFunc(op.Func)
 		}
 	}

@@ -448,3 +448,132 @@ func compareJSON(actual, expected string) error {
 	}
 	return nil
 }
+
+// 辅助: 捕获 panic
+func mustPanic(t *testing.T, fn func(), msg string) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("期望 panic: %s", msg)
+		}
+	}()
+	fn()
+}
+
+func TestRawAccessAndMustMethods(t *testing.T) {
+	data := `{
+		"s": "hello",
+		"n": 123.45,
+		"b": true,
+		"arr": [1,2,3],
+		"ts": "2024-12-31T23:59:59Z"
+	}`
+	root, err := xjson.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if v, ok := root.Get("s").RawString(); !ok || v != "hello" {
+		t.Errorf("RawString 失败: %v %v", v, ok)
+	}
+	if f, ok := root.Get("n").RawFloat(); !ok || f != 123.45 {
+		t.Errorf("RawFloat 失败: %v %v", f, ok)
+	}
+	if root.Get("b").Bool() != true {
+		t.Error("Bool 读取失败")
+	}
+	if root.Get("arr").Len() != 3 {
+		t.Error("Len 读取失败")
+	}
+	if root.Get("ts").Time().IsZero() {
+		t.Error("Time 解析失败")
+	}
+
+	mustPanic(t, func() { root.Get("arr").MustString() }, "MustString 应 panic")
+	mustPanic(t, func() { root.Get("s").MustInt() }, "MustInt 应 panic")
+	mustPanic(t, func() { root.Get("n").MustBool() }, "MustBool 应 panic")
+}
+
+func TestArraySetOnMixedTypesError(t *testing.T) {
+	data := `{"arr": [{"a":1}, 2, {"a":3}]}`
+	root, _ := xjson.Parse(data)
+	arr := root.Query("/arr")
+	arr.Set("x", 10) // 混合类型, 应触发错误记录在当前数组节点
+	if arr.Error() == nil {
+		t.Error("期望 Set 在混合类型数组上产生错误 (检查目标节点的 Error)")
+	}
+}
+
+func TestAppendOnObjectError(t *testing.T) {
+	data := `{"obj": {"a":1}}`
+	root, _ := xjson.Parse(data)
+	obj := root.Query("/obj")
+	obj.Append(2)
+	if obj.Error() == nil {
+		t.Error("期望在对象上 Append 产生错误 (检查目标节点)")
+	}
+}
+
+func TestStringsAndContains(t *testing.T) {
+	data := `{"tags":["go","json","query"], "mixed":["ok",1]}`
+	root, _ := xjson.Parse(data)
+	if !root.Query("/tags").Contains("json") {
+		t.Error("Contains 失败")
+	}
+	ss := root.Query("/tags").Strings()
+	if len(ss) != 3 || ss[1] != "json" {
+		t.Error("Strings 返回不正确")
+	}
+	mixed := root.Query("/mixed")
+	_ = mixed.Strings() // 应该记录错误在 mixed 节点
+	if mixed.Error() == nil {
+		t.Error("期望 mixed.Strings() 在包含非字符串元素时产生错误")
+	}
+}
+
+func TestNegativeIndexHandling(t *testing.T) {
+	data := `{"a":[10,20]}`
+	root, _ := xjson.Parse(data)
+	node := root.Query("/a[-1]")
+	if node.IsValid() {
+		t.Error("期望负索引产生无效节点")
+	}
+}
+
+func TestFunctionChainingAndRemove(t *testing.T) {
+	data := `[{"x":1},{"x":2},{"x":3},{"x":4}]`
+	root, _ := xjson.Parse(data)
+	root.Func("gt2", func(n xjson.Node) xjson.Node {
+		return n.Filter(func(c xjson.Node) bool { return c.Get("x").Int() > 2 })
+	})
+	root.Func("dbl", func(n xjson.Node) xjson.Node {
+		return n.Map(func(c xjson.Node) interface{} { return map[string]int{"x": int(c.Get("x").Int() * 2)} })
+	})
+	chain := root.Query("[@gt2][@dbl]/*/x").Map(func(n xjson.Node) interface{} { return n.Int() })
+	if !chain.IsValid() {
+		t.Fatalf("链式函数结果无效: %v", chain.Error())
+	}
+	vals := chain.Interface()
+	slice, ok := vals.([]interface{})
+	if !ok {
+		t.Fatalf("期望返回切片, 实际类型: %T", vals)
+	}
+	if len(slice) != 2 || slice[0].(float64) != 6 || slice[1].(float64) != 8 {
+		t.Errorf("链式函数结果错误: %v", slice)
+	}
+	root.RemoveFunc("gt2")
+	if root.Query("[@gt2]").IsValid() {
+		t.Error("移除函数后调用应无效")
+	}
+}
+
+func TestMapAfterWildcardFlatten(t *testing.T) {
+	data := `{"groups":[{"items":[1,2]},{"items":[3]}]}`
+	root, _ := xjson.Parse(data)
+	// groups/*/items -> [[1,2],[3]] -> wildcard flatten 后 Map
+	root.Func("asIs", func(n xjson.Node) xjson.Node { return n })
+	vals := root.Query("/groups/*/items[@asIs]/*").Map(func(n xjson.Node) interface{} { return n.Int() }).Interface()
+	arr := vals.([]interface{})
+	if len(arr) != 3 || arr[0].(float64) != 1 || arr[2].(float64) != 3 {
+		t.Errorf("扁平化或 Map 失败: %v", arr)
+	}
+}
