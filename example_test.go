@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/474420502/xjson"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestQuickStartExample(t *testing.T) {
@@ -576,4 +577,80 @@ func TestMapAfterWildcardFlatten(t *testing.T) {
 	if len(arr) != 3 || arr[0].(float64) != 1 || arr[2].(float64) != 3 {
 		t.Errorf("扁平化或 Map 失败: %v", arr)
 	}
+}
+
+func TestDebugBusinessScenario(t *testing.T) {
+	ecommerceJSON := `{
+		"store": {
+			"products": [
+				{
+					"name": "Product 1"
+				}
+			]
+		}
+	}`
+
+	root, err := xjson.Parse(ecommerceJSON)
+	assert.NoError(t, err)
+	assert.True(t, root.IsValid())
+
+	// Check initial products
+	products := root.Get("store").Get("products")
+	assert.Equal(t, 1, products.Len())
+
+	// Add a new product
+	newProduct := map[string]interface{}{
+		"name": "Product 2",
+	}
+
+	products.Append(newProduct)
+
+	// Check updated products
+	products = root.Get("store").Get("products") // Get fresh reference
+	t.Logf("Products length: %d", products.Len())
+	assert.Equal(t, 2, products.Len())
+
+	// Check product names
+	assert.Equal(t, "Product 1", products.Index(0).Get("name").String())
+	assert.Equal(t, "Product 2", products.Index(1).Get("name").String())
+}
+
+func TestDebugAppendIssue(t *testing.T) {
+	ecommerceJSON := `{
+		"store": {
+			"products": [
+				{
+					"name": "Product 1"
+				}
+			]
+		}
+	}`
+
+	root, err := xjson.Parse(ecommerceJSON)
+	assert.NoError(t, err)
+	assert.True(t, root.IsValid())
+
+	// Check initial length
+	products := root.Get("store").Get("products")
+	t.Logf("Initial products length: %d", products.Len())
+	assert.Equal(t, 1, products.Len())
+
+	// Add a new product
+	newProduct := map[string]interface{}{
+		"name": "Product 2",
+	}
+
+	// Append the new product
+	products.Append(newProduct)
+
+	// Check length after append - using the same reference
+	t.Logf("Products length after append (same ref): %d", products.Len())
+
+	// Get a fresh reference
+	freshProducts := root.Get("store").Get("products")
+	t.Logf("Products length after append (fresh ref): %d", freshProducts.Len())
+
+	// They should both be 2
+	assert.Equal(t, 2, products.Len())
+	assert.Equal(t, 2, freshProducts.Len())
 }
