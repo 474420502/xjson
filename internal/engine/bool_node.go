@@ -85,6 +85,10 @@ func (n *boolNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 }
 
 func (n *boolNode) Apply(fn core.PathFunc) core.Node {
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
+
 	if n.err != nil {
 		return n
 	}

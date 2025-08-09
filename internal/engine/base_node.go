@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/474420502/xjson/internal/core"
@@ -94,4 +95,10 @@ func (n *baseNode) Map(fn core.TransformFunc) core.Node {
 	return NewInvalidNode(n.path, ErrTypeAssertion)
 }
 func (n *baseNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node { return nil }
-func (n *baseNode) Apply(fn core.PathFunc) core.Node                          { return nil }
+func (n *baseNode) Apply(fn core.PathFunc) core.Node {
+	// 这个不能改, 必须panic
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
+	return NewInvalidNode(n.path, fmt.Errorf("unsupported function signature for Apply: %T", fn))
+}

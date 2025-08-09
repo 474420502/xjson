@@ -106,6 +106,9 @@ func (n *stringNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node 
 }
 
 func (n *stringNode) Apply(fn core.PathFunc) core.Node {
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
 	if n.err != nil {
 		return n
 	}
@@ -127,7 +130,7 @@ func (n *stringNode) Apply(fn core.PathFunc) core.Node {
 		}
 		return newNode
 	default:
-		return NewInvalidNode(n.path, fmt.Errorf("unsupported function signature for Apply: %T", f))
+		return n.baseNode.Apply(f)
 	}
 }
 
@@ -170,18 +173,18 @@ func (n *stringNode) Append(value interface{}) core.Node {
 }
 
 func (n *stringNode) Raw() string {
+	if n.err != nil {
+		return ""
+	}
 	if n.raw != nil {
 		return *n.raw
-	}
-	if n.err != nil {
-		return "null" // Match JSON representation of an error state
 	}
 	// For a non-root string node, marshal its value to get a valid JSON string literal.
 	b, err := json.Marshal(n.value)
 	if err != nil {
 		// This should theoretically not happen for a simple string.
 		n.setError(err)
-		return "null"
+		return ""
 	}
 	return string(b)
 }

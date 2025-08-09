@@ -128,6 +128,9 @@ func (n *arrayNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 }
 
 func (n *arrayNode) Apply(fn core.PathFunc) core.Node {
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
 	if n.err != nil {
 		return n
 	}
@@ -138,7 +141,7 @@ func (n *arrayNode) Apply(fn core.PathFunc) core.Node {
 	case core.TransformFunc:
 		return n.Map(f)
 	default:
-		return NewInvalidNode(n.path, fmt.Errorf("unsupported function signature for Apply: %T", f))
+		return n.baseNode.Apply(f)
 	}
 }
 
@@ -177,12 +180,12 @@ func (n *arrayNode) Filter(fn core.PredicateFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	
+
 	// Handle nil function case
 	if fn == nil {
 		return NewInvalidNode(n.path, ErrTypeAssertion)
 	}
-	
+
 	filteredNodes := make([]core.Node, 0, len(n.value))
 	for _, child := range n.value {
 		if fn(child) {
@@ -196,12 +199,12 @@ func (n *arrayNode) Map(fn core.TransformFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	
+
 	// Handle nil function case
 	if fn == nil {
 		return NewInvalidNode(n.path, ErrTypeAssertion)
 	}
-	
+
 	mappedValues := make([]core.Node, 0, len(n.value))
 	for _, child := range n.value {
 		mappedValue := fn(child)

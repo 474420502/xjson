@@ -87,16 +87,16 @@ func (n *objectNode) MustString() string {
 	}
 	return buf.String()
 }
-func (n *objectNode) Float() float64      { return 0 }
-func (n *objectNode) MustFloat() float64  { panic(ErrTypeAssertion) }
-func (n *objectNode) Int() int64          { return 0 }
-func (n *objectNode) MustInt() int64      { panic(ErrTypeAssertion) }
-func (n *objectNode) Bool() bool          { return false }
-func (n *objectNode) MustBool() bool      { panic(ErrTypeAssertion) }
-func (n *objectNode) Time() time.Time     { return time.Time{} }
-func (n *objectNode) MustTime() time.Time { panic(ErrTypeAssertion) }
-func (n *objectNode) Array() []core.Node       { return nil }
-func (n *objectNode) MustArray() []core.Node   { panic(ErrTypeAssertion) }
+func (n *objectNode) Float() float64         { return 0 }
+func (n *objectNode) MustFloat() float64     { panic(ErrTypeAssertion) }
+func (n *objectNode) Int() int64             { return 0 }
+func (n *objectNode) MustInt() int64         { panic(ErrTypeAssertion) }
+func (n *objectNode) Bool() bool             { return false }
+func (n *objectNode) MustBool() bool         { panic(ErrTypeAssertion) }
+func (n *objectNode) Time() time.Time        { return time.Time{} }
+func (n *objectNode) MustTime() time.Time    { panic(ErrTypeAssertion) }
+func (n *objectNode) Array() []core.Node     { return nil }
+func (n *objectNode) MustArray() []core.Node { panic(ErrTypeAssertion) }
 func (n *objectNode) Interface() interface{} {
 	if n.err != nil {
 		return nil
@@ -129,6 +129,9 @@ func (n *objectNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node 
 }
 
 func (n *objectNode) Apply(fn core.PathFunc) core.Node {
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
 	if n.err != nil {
 		return n
 	}
@@ -139,7 +142,7 @@ func (n *objectNode) Apply(fn core.PathFunc) core.Node {
 	case core.TransformFunc:
 		return n.Map(f)
 	default:
-		return NewInvalidNode(n.path, fmt.Errorf("unsupported function signature for Apply: %T", f))
+		return n.baseNode.Apply(f)
 	}
 }
 
@@ -165,12 +168,12 @@ func (n *objectNode) Filter(fn core.PredicateFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	
+
 	// Handle nil function case
 	if fn == nil {
 		return NewInvalidNode(n.path, ErrTypeAssertion)
 	}
-	
+
 	// For an object, filter applies to its values.
 	// Returns a new array node containing filtered values.
 	filteredNodes := make([]core.Node, 0, len(n.value))
@@ -186,12 +189,12 @@ func (n *objectNode) Map(fn core.TransformFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	
+
 	// Handle nil function case
 	if fn == nil {
 		return NewInvalidNode(n.path, ErrTypeAssertion)
 	}
-	
+
 	// For an object, map applies to its values.
 	// Returns a new array node containing mapped values.
 	mappedValues := make([]core.Node, 0, len(n.value))

@@ -70,6 +70,9 @@ func (n *nullNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 }
 
 func (n *nullNode) Apply(fn core.PathFunc) core.Node {
+	if fn == nil {
+		panic("Apply function cannot be nil")
+	}
 	if n.err != nil {
 		return n
 	}
