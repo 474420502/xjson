@@ -104,19 +104,32 @@ type Node interface {
     CallFunc(name string) Node
     RemoveFunc(name string) Node
     Apply(fn PathFunc) Node
+    GetFuncs() *map[string]func(Node) Node
     
     // 类型转换
     String() string
+    MustString() string
     Float() float64
+    MustFloat() float64
     Int() int64
+    MustInt() int64
     Bool() bool
+    MustBool() bool
+    Time() time.Time
+    MustTime() time.Time
     Array() []Node
+    MustArray() []Node
     Interface() interface{}
     
     // 原生值访问 (性能优化)
     RawFloat() (float64, bool)
     RawString() (string, bool)
-    // ... 其他原生类型
+    
+    // 其他转换方法
+    Strings() []string
+    Contains(value string) bool
+    AsMap() map[string]Node
+    MustAsMap() map[string]Node
 }
 ```
 
@@ -198,6 +211,9 @@ result := root.Apply(func(n xjson.Node) bool {
 
 // 移除函数
 root.RemoveFunc("filterFunc")
+
+// 获取已注册函数
+funcs := root.GetFuncs()
 ```
 
 ## 🛠️ 完整 API 参考
@@ -210,6 +226,7 @@ root.RemoveFunc("filterFunc")
 | **CallFunc(name)** | 直接调用函数 | `root.CallFunc("cheap")` |
 | **RemoveFunc(name)** | 移除函数 | `root.RemoveFunc("cheap")` |
 | **Apply(fn)** | 立即应用函数 | `root.Apply(predicateFunc)` |
+| **GetFuncs()** | 获取已注册函数 | `funcs := root.GetFuncs()` |
 | **Error() error** | 返回链式调用中的第一个错误 | `if err := n.Error(); err != nil { ... }` |
 
 ### 流式操作
@@ -228,6 +245,19 @@ root.RemoveFunc("filterFunc")
 | **RawString()** | 直接获取 string 值 | `if name, ok := n.RawString(); ok { ... }` |
 | **Strings()** | 获取字符串数组 | `tags := n.Strings()` |
 | **Contains(value)** | 检查是否包含字符串 | `if n.Contains("target") { ... }` |
+| **AsMap()** | 获取节点为 map | `obj := n.AsMap()` |
+
+### 强制类型转换
+
+| 方法 | 描述 | 示例 |
+|------|------|------|
+| **MustString()** | 获取字符串值，失败时 panic | `value := n.MustString()` |
+| **MustFloat()** | 获取 float64 值，失败时 panic | `value := n.MustFloat()` |
+| **MustInt()** | 获取 int64 值，失败时 panic | `value := n.MustInt()` |
+| **MustBool()** | 获取 bool 值，失败时 panic | `value := n.MustBool()` |
+| **MustTime()** | 获取 time.Time 值，失败时 panic | `value := n.MustTime()` |
+| **MustArray()** | 获取数组值，失败时 panic | `value := n.MustArray()` |
+| **MustAsMap()** | 获取 map 值，失败时 panic | `value := n.MustAsMap()` |
 
 ## ⚡ 性能优化
 
@@ -358,6 +388,18 @@ processedUsers := root.Query("/users[@withAvg]")
    ```go
    // 新增通配符查询
    result := root.Query("/store/*/title")
+   ```
+
+5. **新增方法**：
+   ```go
+   // Must* 方法在类型不匹配时 panic
+   value := root.MustString()
+   
+   // AsMap 用于对象转换
+   obj := root.AsMap()
+   
+   // GetFuncs 用于获取已注册函数
+   funcs := root.GetFuncs()
    ```
 
 **兼容性说明：**

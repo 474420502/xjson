@@ -104,19 +104,32 @@ type Node interface {
     CallFunc(name string) Node
     RemoveFunc(name string) Node
     Apply(fn PathFunc) Node
+    GetFuncs() *map[string]func(Node) Node
     
     // Type conversion
     String() string
+    MustString() string
     Float() float64
+    MustFloat() float64
     Int() int64
+    MustInt() int64
     Bool() bool
+    MustBool() bool
+    Time() time.Time
+    MustTime() time.Time
     Array() []Node
+    MustArray() []Node
     Interface() interface{}
     
     // Native value access (performance optimization)
     RawFloat() (float64, bool)
     RawString() (string, bool)
-    // ... other native types
+    
+    // Additional conversion methods
+    Strings() []string
+    Contains(value string) bool
+    AsMap() map[string]Node
+    MustAsMap() map[string]Node
 }
 ```
 
@@ -198,6 +211,9 @@ result := root.Apply(func(n xjson.Node) bool {
 
 // Remove function
 root.RemoveFunc("filterFunc")
+
+// Get registered functions
+funcs := root.GetFuncs()
 ```
 
 ## 🛠️ Complete API Reference
@@ -210,6 +226,7 @@ root.RemoveFunc("filterFunc")
 | **CallFunc(name)** | Call function directly | `root.CallFunc("cheap")` |
 | **RemoveFunc(name)** | Remove function | `root.RemoveFunc("cheap")` |
 | **Apply(fn)** | Apply function immediately | `root.Apply(predicateFunc)` |
+| **GetFuncs()** | Get registered functions | `funcs := root.GetFuncs()` |
 | **Error() error** | Return first error in chained calls | `if err := n.Error(); err != nil { ... }` |
 
 ### Streaming Operations
@@ -228,6 +245,7 @@ root.RemoveFunc("filterFunc")
 | **RawString()** | Directly get string value | `if name, ok := n.RawString(); ok { ... }` |
 | **Strings()** | Get string array | `tags := n.Strings()` |
 | **Contains(value)** | Check if contains string | `if n.Contains("target") { ... }` |
+| **AsMap()** | Get node as map | `obj := n.AsMap()` |
 
 ## ⚡ Performance Optimization
 
@@ -358,6 +376,18 @@ processedUsers := root.Query("/users[@withAvg]")
    ```go
    // New wildcard queries
    result := root.Query("/store/*/title")
+   ```
+
+5. **Additional Methods**:
+   ```go
+   // Must* methods for panicking on type mismatch
+   value := root.MustString()
+   
+   // AsMap for object conversion
+   obj := root.AsMap()
+   
+   // GetFuncs to retrieve registered functions
+   funcs := root.GetFuncs()
    ```
 
 **Compatibility Notes:**

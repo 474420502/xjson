@@ -84,6 +84,18 @@ func TestQuickStartExample(t *testing.T) {
 	if err := compareJSON(actualJSONNode, expectedOutput); err != nil {
 		t.Errorf("期望的JSON输出不匹配: %v\n期望: %s\n实际: %s", err, expectedOutput, actualJSONNode)
 	}
+
+	// 6. 验证序列化结果
+	var actualData, expectedData interface{}
+	if err := json.Unmarshal([]byte(actualJSONNode), &actualData); err != nil {
+		t.Fatalf("无法解析实际JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(expectedOutput), &expectedData); err != nil {
+		t.Fatalf("无法解析期望的JSON: %v", err)
+	}
+	if !reflect.DeepEqual(actualData, expectedData) {
+		t.Error("反序列化后的数据结构不匹配")
+	}
 }
 
 func TestBusinessRuleEncapsulation(t *testing.T) {
@@ -101,7 +113,7 @@ func TestBusinessRuleEncapsulation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)
 	}
-
+ 
 	root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(p xjson.Node) bool {
 			return p.Get("stock").Int() > 0 &&
