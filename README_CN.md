@@ -1,4 +1,4 @@
-# XJSON - 统一节点模型JSON处理器 (v0.0.2 修订版)
+# XJSON - 统一节点模型JSON处理器 (v0.0.3 修订版)
 
 **XJSON** **是一个强大的 Go JSON 处理库，采用完全统一的** **Node** **模型，支持路径函数、流式操作和灵活的查询语法。**
 
@@ -68,26 +68,26 @@ func main() {
 
 	// 3. 基础路径查询示例
 	fmt.Println("=== 基础路径查询 ===")
-	
+
 	// 键访问
 	booksNode := root.Query("/store/books")
 	fmt.Printf("Books array type: %v\n", booksNode.Type())
-	
+
 	// 数组索引
 	firstBook := root.Query("/store/books[0]/title").String()
 	fmt.Printf("First book title: %s\n", firstBook)
-	
+
 	// 数组切片
 	middleBooks := root.Query("/store/books[1:3]/title").Strings()
 	fmt.Printf("Middle books (1:3): %v\n", middleBooks)
-	
+
 	// 获取最后两本书
 	lastTwoBooks := root.Query("/store/books[-2:]/title").Strings()
 	fmt.Printf("Last two books: %v\n", lastTwoBooks)
 
 	// 4. 函数调用示例
 	fmt.Println("\n=== 函数调用示例 ===")
-	
+
 	// 使用路径函数查询
 	cheapTitles := root.Query("/store/books[@cheap]/title").Strings()
 	if err := root.Error(); err != nil {
@@ -102,15 +102,15 @@ func main() {
 
 	// 5. 通配符和高级语法
 	fmt.Println("\n=== 通配符和高级语法 ===")
-	
+
 	// 通配符查询
 	allStoreItems := root.Query("/store/*")
 	fmt.Printf("All store items count: %d\n", allStoreItems.Len())
-	
+
 	// 递归下降查询
 	allAuthors := root.Query("//name").Strings()
 	fmt.Println("All authors in document:", allAuthors)
-	
+
 	// 特殊字符键名处理（假设有这样的数据）
 	specialKeyData := `{"data/user-profile": {"name": "John", "age": 30}}`
 	specialRoot, _ := xjson.Parse(specialKeyData)
@@ -145,7 +145,7 @@ type Node interface {
     Error() error
     Path() string
     Raw() string
-    
+  
     // 查询方法
     Query(path string) Node
     Get(key string) Node
@@ -167,7 +167,7 @@ type Node interface {
     RemoveFunc(name string) Node
     Apply(fn PathFunc) Node
     GetFuncs() *map[string]func(Node) Node
-    
+  
     // 类型转换
     String() string
     MustString() string
@@ -182,11 +182,11 @@ type Node interface {
     Array() []Node
     MustArray() []Node
     Interface() interface{}
-    
+  
     // 原生值访问 (性能优化)
     RawFloat() (float64, bool)
     RawString() (string, bool)
-    
+  
     // 其他转换方法
     Strings() []string
     Contains(value string) bool
@@ -237,9 +237,9 @@ XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂�
 
 路径查询总是以 `/` 开头，表示从根节点开始。
 
-*   **语法**: `/`
-*   **描述**: 代表 JSON 数据的根节点。
-*   **示例**: `/store` 从根节点获取 `store` 键的值。
+* **语法**: `/`
+* **描述**: 代表 JSON 数据的根节点。
+* **示例**: `/store` 从根节点获取 `store` 键的值。
 
 **注意**: `/store/books` 和 `store/books` 这两种写法是等效的。
 
@@ -247,44 +247,45 @@ XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂�
 
 标准的对象字段访问通过键名直接完成。任何符合 Go 语言标识符习惯的字符串都可以直接作为路径段。
 
-*   **语法**: `/key1/key2`
-*   **示例**: `/store/books`，这段路径会依次获取 `store` 键和 `books` 键。
+* **语法**: `/key1/key2`
+* **示例**: `/store/books`，这段路径会依次获取 `store` 键和 `books` 键。
 
 **4.3. 数组访问**
 
 通过方括号 `[...]` 访问数组元素，支持单个索引和范围切片。
 
-*   **索引访问**:
-    *   **语法**: `[<index>]`
-    *   **描述**: 获取单个数组元素，索引从 0 开始。
-    *   **示例**: `/store/books[0]`，获取 `books` 数组的第一个元素。
+* **索引访问**:
 
-*   **切片访问**:
-    *   **语法**:
-        *   `[start:end]`: 获取从 `start` 到 `end-1` 的元素。
-        *   `[start:]`: 获取从 `start` 到末尾的元素。
-        *   `[:end]`: 获取从开头到 `end-1` 的元素。
-        *   `[-N:]`: 获取最后 N 个元素。
-    *   **描述**: 获取数组的一个子集，并返回一个包含这些元素的新数组节点。
-    *   **示例**: `/store/books[1:3]`，返回一个包含 `books` 数组中第二个和第三个元素的新数组。
+  * **语法**: `[<index>]`
+  * **描述**: 获取单个数组元素，索引从 0 开始。
+  * **示例**: `/store/books[0]`，获取 `books` 数组的第一个元素。
+* **切片访问**:
+
+  * **语法**:
+    * `[start:end]`: 获取从 `start` 到 `end-1` 的元素。
+    * `[start:]`: 获取从 `start` 到末尾的元素。
+    * `[:end]`: 获取从开头到 `end-1` 的元素。
+    * `[-N:]`: 获取最后 N 个元素。
+  * **描述**: 获取数组的一个子集，并返回一个包含这些元素的新数组节点。
+  * **示例**: `/store/books[1:3]`，返回一个包含 `books` 数组中第二个和第三个元素的新数组。
 
 **4.4. 函数调用**
 
 在路径中通过 `[@<funcName>]` 语法调用已注册的函数。函数提供了一种强大的数据处理和过滤机制。
 
-*   **语法**: `[@<函数名>]`
-*   **标志符**: `@` 符号明确表示这是一个函数调用。
-*   **要求**: 函数必须已通过 `RegisterFunc` 注册到节点上。
-*   **示例**: `/store/books[@cheap]/title`，在 `books` 数组上调用 `cheap` 函数，并从结果中提取 `title`。
+* **语法**: `[@<函数名>]`
+* **标志符**: `@` 符号明确表示这是一个函数调用。
+* **要求**: 函数必须已通过 `RegisterFunc` 注册到节点上。
+* **示例**: `/store/books[@cheap]/title`，在 `books` 数组上调用 `cheap` 函数，并从结果中提取 `title`。
 
 **4.5. 通配符**
 
 星号 `*` 作为通配符，用于匹配一个节点下的所有直接子元素。
 
-*   **语法**: `*`
-*   **对象上的行为**: 匹配对象的所有值，并返回一个包含这些值的新数组节点。
-*   **数组上的行为**: 匹配数组的所有元素，并返回该数组自身。
-*   **示例**: `/store/*/title`，获取 `store` 对象下所有直接子节点（在这里是 `books` 数组）的 `title` 字段。
+* **语法**: `*`
+* **对象上的行为**: 匹配对象的所有值，并返回一个包含这些值的新数组节点。
+* **数组上的行为**: 匹配数组的所有元素，并返回该数组自身。
+* **示例**: `/store/*/title`，获取 `store` 对象下所有直接子节点（在这里是 `books` 数组）的 `title` 字段。
 
 #### **高级语法**
 
@@ -292,47 +293,47 @@ XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂�
 
 所有核心组件都可以自由组合，形成强大的链式查询。解析器会从左到右依次执行每个操作。
 
-*   **示例**: `/store/books[@filter][0]/name`
-    1.  `/store/books`: 获取 `books` 数组。
-    2.  `[@filter]`: 在该数组上调用 `filter` 函数。
-    3.  `[0]`: 获取函数返回结果（应为一个数组）的第一个元素。
-    4.  `/name`: 获取该元素的 `name` 字段。
+* **示例**: `/store/books[@filter][0]/name`
+  1. `/store/books`: 获取 `books` 数组。
+  2. `[@filter]`: 在该数组上调用 `filter` 函数。
+  3. `[0]`: 获取函数返回结果（应为一个数组）的第一个元素。
+  4. `/name`: 获取该元素的 `name` 字段。
 
 **5.2. 特殊字符键名处理**
 
 当对象键名包含 `/`, `.`, `[`, `]` 等特殊字符或非字母数字时，必须使用方括号和引号 `['<key>']` 或 `["<key>"]` 的形式来界定。
 
-*   **语法**: `['<键名>']` 或 `["<键名>"]`
-*   **键名包含斜杠**: `/['/api/v1/users']`
-*   **键名包含点号**: `/data/['user.profile']/name`
-*   **键名包含引号**:
-    *   如果键名为 `a"key`，使用 `['a"key']`。
-    *   如果键名为 `a'key`，使用 `["a'key"]`。
-*   **与普通路径混合**: `/data['user-settings']/theme`
+* **语法**: `['<键名>']` 或 `["<键名>"]`
+* **键名包含斜杠**: `/['/api/v1/users']`
+* **键名包含点号**: `/data/['user.profile']/name`
+* **键名包含引号**:
+  * 如果键名为 `a"key`，使用 `['a"key']`。
+  * 如果键名为 `a'key`，使用 `["a'key"]`。
+* **与普通路径混合**: `/data['user-settings']/theme`
 
 **5.3. 递归下降**
 
 双斜杠 `//` 用于在当前节点及其所有后代中进行深度搜索，查找匹配的键。
 
-*   **语法**: `//key`
-*   **描述**: 与 `/` 只在直接子节点中查找不同，`//` 会遍历整个子树，将所有匹配 `key` 的节点收集到一个新的数组节点中。
-*   **示例**: `//author` 将从根节点开始，查找所有层级下的 `author` 字段。
+* **语法**: `//key`
+* **描述**: 与 `/` 只在直接子节点中查找不同，`//` 会遍历整个子树，将所有匹配 `key` 的节点收集到一个新的数组节点中。
+* **示例**: `//author` 将从根节点开始，查找所有层级下的 `author` 字段。
 
 > **性能警告**：递归下降 `//` 是一个非常强大但开销极大的操作。因为它需要遍历一个节点下的整个子树，当处理大型或深层嵌套的 JSON 数据时，可能会成为性能瓶颈。建议仅在数据结构不确定或确实需要全局搜索时使用，在性能敏感的场景下应优先使用精确路径。
 
 #### **语法速查表**
 
-| 分类 | 语法 | 描述 | 示例 |
-| :--- | :--- | :--- | :--- |
-| **基础** | `/` | 路径段之间的分隔符。 | `/store/books` |
-| | `key` | 访问对象的字段。 | `/store` |
-| **数组** | `[<index>]` | 按索引访问数组元素。 | `[0]`, `[-1]` |
-| | `[start:end]` | 按范围访问数组元素（切片）。 | `[1:3]`, `[:-1]` |
-| **函数** | `[@<name>]` | 调用已注册的路径函数。 | `[@cheap]`, `[@inStock]` |
-| **高级** | `*` | 匹配对象或数组的所有直接子元素。 | `/store/*` |
-| | `//key` | 递归搜索所有后代节点中的 `key` (性能开销大)。 | `//author` |
-| **特殊字符** | `['<key>']` | 界定包含特殊字符的键名。 | `['user.profile']`|
-| | `["<key>"]`| 界定包含单引号的键名。 | `["a'key"]` |
+| 分类               | 语法            | 描述                                            | 示例                         |
+| :----------------- | :-------------- | :---------------------------------------------- | :--------------------------- |
+| **基础**     | `/`           | 路径段之间的分隔符。                            | `/store/books`             |
+|                    | `key`         | 访问对象的字段。                                | `/store`                   |
+| **数组**     | `[<index>]`   | 按索引访问数组元素。                            | `[0]`, `[-1]`            |
+|                    | `[start:end]` | 按范围访问数组元素（切片）。                    | `[1:3]`, `[:-1]`         |
+| **函数**     | `[@<name>]`   | 调用已注册的路径函数。                          | `[@cheap]`, `[@inStock]` |
+| **高级**     | `*`           | 匹配对象或数组的所有直接子元素。                | `/store/*`                 |
+|                    | `//key`       | 递归搜索所有后代节点中的 `key` (性能开销大)。 | `//author`                 |
+| **特殊字符** | `['<key>']`   | 界定包含特殊字符的键名。                        | `['user.profile']`         |
+|                    | `["<key>"]`   | 界定包含单引号的键名。                          | `["a'key"]`                |
 
 ### 6. 函数注册和调用
 
@@ -368,44 +369,44 @@ funcs := root.GetFuncs()
 
 ### 函数管理
 
-| 方法 | 描述 | 示例 |
-|------|------|------|
-| **RegisterFunc(name, fn)** | 注册路径函数 | `root.RegisterFunc("cheap", filterCheap)` |
-| **CallFunc(name)** | 直接调用函数 | `root.CallFunc("cheap")` |
-| **RemoveFunc(name)** | 移除函数 | `root.RemoveFunc("cheap")` |
-| **Apply(fn)** | 立即应用函数 | `root.Apply(predicateFunc)` |
-| **GetFuncs()** | 获取已注册函数 | `funcs := root.GetFuncs()` |
-| **Error() error** | 返回链式调用中的第一个错误 | `if err := n.Error(); err != nil { ... }` |
+| 方法                             | 描述                       | 示例                                        |
+| -------------------------------- | -------------------------- | ------------------------------------------- |
+| **RegisterFunc(name, fn)** | 注册路径函数               | `root.RegisterFunc("cheap", filterCheap)` |
+| **CallFunc(name)**         | 直接调用函数               | `root.CallFunc("cheap")`                  |
+| **RemoveFunc(name)**       | 移除函数                   | `root.RemoveFunc("cheap")`                |
+| **Apply(fn)**              | 立即应用函数               | `root.Apply(predicateFunc)`               |
+| **GetFuncs()**             | 获取已注册函数             | `funcs := root.GetFuncs()`                |
+| **Error() error**          | 返回链式调用中的第一个错误 | `if err := n.Error(); err != nil { ... }` |
 
 ### 流式操作
 
-| 方法 | 描述 | 示例 |
-|------|------|------|
-| **Filter(fn)** | 过滤节点集合 | `n.Filter(func(n Node) bool { return n.Get("active").Bool() })` |
-| **Map(fn)** | 转换节点集合 | `n.Map(func(n Node) interface{} { return n.Get("name").String() })` |
+| 方法                  | 描述         | 示例                                                                   |
+| --------------------- | ------------ | ---------------------------------------------------------------------- |
+| **Filter(fn)**  | 过滤节点集合 | `n.Filter(func(n Node) bool { return n.Get("active").Bool() })`      |
+| **Map(fn)**     | 转换节点集合 | `n.Map(func(n Node) interface{} { return n.Get("name").String() })`  |
 | **ForEach(fn)** | 遍历节点集合 | `n.ForEach(func(i interface{}, v Node) { fmt.Println(v.String()) })` |
 
 ### 原生值访问
 
-| 方法 | 描述 | 示例 |
-|------|------|------|
-| **RawFloat()** | 直接获取 float64 值 | `if price, ok := n.RawFloat(); ok { ... }` |
-| **RawString()** | 直接获取 string 值 | `if name, ok := n.RawString(); ok { ... }` |
-| **Strings()** | 获取字符串数组 | `tags := n.Strings()` |
-| **Contains(value)** | 检查是否包含字符串 | `if n.Contains("target") { ... }` |
-| **AsMap()** | 获取节点为 map | `obj := n.AsMap()` |
+| 方法                      | 描述                | 示例                                         |
+| ------------------------- | ------------------- | -------------------------------------------- |
+| **RawFloat()**      | 直接获取 float64 值 | `if price, ok := n.RawFloat(); ok { ... }` |
+| **RawString()**     | 直接获取 string 值  | `if name, ok := n.RawString(); ok { ... }` |
+| **Strings()**       | 获取字符串数组      | `tags := n.Strings()`                      |
+| **Contains(value)** | 检查是否包含字符串  | `if n.Contains("target") { ... }`          |
+| **AsMap()**         | 获取节点为 map      | `obj := n.AsMap()`                         |
 
 ### 强制类型转换
 
-| 方法 | 描述 | 示例 |
-|------|------|------|
-| **MustString()** | 获取字符串值，失败时 panic | `value := n.MustString()` |
-| **MustFloat()** | 获取 float64 值，失败时 panic | `value := n.MustFloat()` |
-| **MustInt()** | 获取 int64 值，失败时 panic | `value := n.MustInt()` |
-| **MustBool()** | 获取 bool 值，失败时 panic | `value := n.MustBool()` |
-| **MustTime()** | 获取 time.Time 值，失败时 panic | `value := n.MustTime()` |
-| **MustArray()** | 获取数组值，失败时 panic | `value := n.MustArray()` |
-| **MustAsMap()** | 获取 map 值，失败时 panic | `value := n.MustAsMap()` |
+| 方法                   | 描述                            | 示例                        |
+| ---------------------- | ------------------------------- | --------------------------- |
+| **MustString()** | 获取字符串值，失败时 panic      | `value := n.MustString()` |
+| **MustFloat()**  | 获取 float64 值，失败时 panic   | `value := n.MustFloat()`  |
+| **MustInt()**    | 获取 int64 值，失败时 panic     | `value := n.MustInt()`    |
+| **MustBool()**   | 获取 bool 值，失败时 panic      | `value := n.MustBool()`   |
+| **MustTime()**   | 获取 time.Time 值，失败时 panic | `value := n.MustTime()`   |
+| **MustArray()**  | 获取数组值，失败时 panic        | `value := n.MustArray()`  |
+| **MustAsMap()**  | 获取 map 值，失败时 panic       | `value := n.MustAsMap()`  |
 
 ## ⚡ 性能优化
 
@@ -504,53 +505,55 @@ processedUsers := root.Query("/users[@withAvg]")
 **主要变化：**
 
 1. **函数系统更新**：
+
    ```go
    // 旧版本 (已弃用)
    root.Func("name", fn)
-   
+
    // 新版本 (推荐)
    root.RegisterFunc("name", fn)
    ```
-
 2. **新增 Apply 方法**：
+
    ```go
    // 立即应用函数
    result := root.Apply(func(n xjson.Node) bool {
        return n.Get("active").Bool()
    })
    ```
-
 3. **类型系统增强**：
+
    ```go
    // 使用具体的函数类型
    var filterFunc xjson.PredicateFunc = func(n xjson.Node) bool {
        return n.Get("price").Float() > 10
    }
-   
+
    var transformFunc xjson.TransformFunc = func(n xjson.Node) interface{} {
        return n.Get("name").String()
    }
    ```
-
 4. **通配符支持**：
+
    ```go
    // 新增通配符查询
    result := root.Query("/store/*/title")
    ```
-
 5. **新增方法**：
+
    ```go
    // Must* 方法在类型不匹配时 panic
    value := root.MustString()
-   
+
    // AsMap 用于对象转换
    obj := root.AsMap()
-   
+
    // GetFuncs 用于获取已注册函数
    funcs := root.GetFuncs()
    ```
 
 **兼容性说明：**
+
 - 旧的 `Func()` 方法仍然可用，但已被标记为弃用
 - 所有现有的查询语法继续有效
 - 新功能完全向后兼容

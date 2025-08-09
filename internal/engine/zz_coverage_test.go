@@ -25,8 +25,8 @@ func TestArrayNodeZeroCoverage(t *testing.T) {
 	assert.Equal(t, time.Time{}, arrNode.Time())
 	assert.Panics(t, func() { arrNode.MustTime() })
 
-	// Test Func, Apply and Query
-	arrNode.Func("test", func(n core.Node) core.Node { return n })
+	// Test RegisterFunc, Apply and Query
+	arrNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	arrNode.Apply(func(n core.Node) bool { return true })
 	arrNode.Query("[0]")
 }
@@ -41,8 +41,8 @@ func TestBoolNodeZeroCoverage(t *testing.T) {
 	assert.Error(t, boolNode.Index(0).Error())
 	assert.Error(t, boolNode.Query("any").Error())
 
-	// Cover Func and Apply
-	boolNode.Func("test", func(n core.Node) core.Node { return n })
+	// Cover RegisterFunc and Apply
+	boolNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	boolNode.Apply(func(n core.Node) bool { return true })
 }
 
@@ -56,8 +56,8 @@ func TestNullNodeZeroCoverage(t *testing.T) {
 	assert.Error(t, nullNode.Index(0).Error())
 	assert.Error(t, nullNode.Query("any").Error())
 
-	// Cover Func and Apply
-	nullNode.Func("test", func(n core.Node) core.Node { return n })
+	// Cover RegisterFunc and Apply
+	nullNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	nullNode.Apply(func(n core.Node) bool { return true })
 }
 
@@ -71,8 +71,8 @@ func TestNumberNodeZeroCoverage(t *testing.T) {
 	assert.Error(t, numberNode.Index(0).Error())
 	assert.Error(t, numberNode.Query("any").Error())
 
-	// Cover Func and Apply
-	numberNode.Func("test", func(n core.Node) core.Node { return n })
+	// Cover RegisterFunc and Apply
+	numberNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	numberNode.Apply(func(n core.Node) bool { return true })
 }
 
@@ -86,8 +86,8 @@ func TestStringNodeZeroCoverage(t *testing.T) {
 	assert.Error(t, stringNode.Index(0).Error())
 	assert.Error(t, stringNode.Query("any").Error())
 
-	// Cover Func and Apply
-	stringNode.Func("test", func(n core.Node) core.Node { return n })
+	// Cover RegisterFunc and Apply
+	stringNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	stringNode.Apply(func(n core.Node) bool { return true })
 }
 
@@ -108,8 +108,8 @@ func TestObjectNodeZeroCoverage(t *testing.T) {
 	assert.Panics(t, func() { objectNode.MustArray() })
 	assert.Nil(t, objectNode.Array())
 
-	// Cover Func, Apply, Filter and Map
-	objectNode.Func("test", func(n core.Node) core.Node { return n })
+	// Cover RegisterFunc, Apply, Filter and Map
+	objectNode.RegisterFunc("test", func(n core.Node) core.Node { return n })
 	objectNode.Apply(func(n core.Node) bool { return true })
 	objectNode.Filter(func(n core.Node) bool { return true })
 	objectNode.Map(func(n core.Node) interface{} { return n })
@@ -129,8 +129,8 @@ func TestInvalidNodeCoverageForZz(t *testing.T) {
 	node := NewInvalidNode("root", err)
 	invalid := node.(*invalidNode)
 
-	// Cover Func and Apply
-	assert.Same(t, invalid, invalid.Func("any", nil))
+	// Cover RegisterFunc and Apply
+	assert.Same(t, invalid, invalid.RegisterFunc("any", nil))
 	assert.Same(t, invalid, invalid.Apply(nil))
 
 	// Cover other methods for completeness, although they are mostly panicking or returning self

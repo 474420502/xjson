@@ -255,9 +255,6 @@ type Mutator interface {
 // Functional 提供了用于节点操作的高阶函数方法。
 // Functional provides higher-order functional methods for node manipulation.
 type Functional interface {
-	// Deprecated: 使用 RegisterFunc 和 CallFunc 代替
-	// Deprecated: Use RegisterFunc and CallFunc instead
-	Func(name string, fn func(Node) Node) Node
 	// Filter 对集合（数组或对象值）中的每个元素应用一个函数
 	// 并返回一个仅包含函数返回 true 的元素的新 Node。
 	// Filter applies a function to each element in a collection (array or object values)

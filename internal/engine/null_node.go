@@ -49,15 +49,6 @@ func (n *nullNode) Interface() interface{} {
 	return nil
 }
 
-// Deprecated: Use RegisterFunc and CallFunc instead
-func (n *nullNode) Func(name string, fn func(core.Node) core.Node) core.Node {
-	if n.err != nil {
-		return n
-	}
-	(*n.funcs)[name] = fn
-	return n
-}
-
 func (n *nullNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 	if n.err != nil {
 		return n

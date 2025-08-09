@@ -65,10 +65,6 @@ func TestBaseNode(t *testing.T) {
 	assert.Nil(t, bn.AsMap())
 	assert.Panics(t, func() { bn.MustAsMap() })
 
-	// 已弃用的方法，但为了覆盖率进行测试
-	// Deprecated method, but test for coverage
-	assert.Nil(t, bn.Func("name", nil))
-
 	assert.Nil(t, bn.CallFunc("name"))
 	assert.Nil(t, bn.RemoveFunc("name"))
 

@@ -83,9 +83,6 @@ func (n *baseNode) Strings() []string                             { return nil }
 func (n *baseNode) AsMap() map[string]core.Node                   { return nil }
 func (n *baseNode) MustAsMap() map[string]core.Node               { panic("not implemented") }
 
-// Deprecated: Use RegisterFunc and CallFunc instead
-func (n *baseNode) Func(name string, fn func(core.Node) core.Node) core.Node { return nil }
-
 func (n *baseNode) CallFunc(name string) core.Node   { return nil }
 func (n *baseNode) RemoveFunc(name string) core.Node { return nil }
 func (n *baseNode) Filter(fn core.PredicateFunc) core.Node {

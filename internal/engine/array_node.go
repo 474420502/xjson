@@ -104,18 +104,6 @@ func (n *arrayNode) Interface() interface{} {
 	return s
 }
 
-// Deprecated: Use RegisterFunc and CallFunc instead
-func (n *arrayNode) Func(name string, fn func(core.Node) core.Node) core.Node {
-	if n.err != nil {
-		return n
-	}
-	if n.funcs == nil {
-		n.funcs = &map[string]func(core.Node) core.Node{}
-	}
-	(*n.funcs)[name] = fn
-	return n
-}
-
 func (n *arrayNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 	if n.err != nil {
 		return n

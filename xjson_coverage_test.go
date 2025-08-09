@@ -40,8 +40,8 @@ func TestArrayNodeCoverageInXJSON(t *testing.T) {
 	assert.Nil(t, node.AsMap())
 	assert.Panics(t, func() { node.MustAsMap() })
 
-	// Test Func and Apply on array
-	node.Func("test", func(n Node) Node { return n })
+	// Test RegisterFunc and Apply on array
+	node.RegisterFunc("test", func(n Node) Node { return n })
 	node.Apply(func(n Node) bool { return true })
 
 	// Test Query on array with valid and invalid paths

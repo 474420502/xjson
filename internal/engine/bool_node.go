@@ -64,15 +64,6 @@ func (n *boolNode) Interface() interface{} {
 	return n.value
 }
 
-// Deprecated: Use RegisterFunc and CallFunc instead
-func (n *boolNode) Func(name string, fn func(core.Node) core.Node) core.Node {
-	if n.err != nil {
-		return n
-	}
-	(*n.funcs)[name] = fn
-	return n
-}
-
 func (n *boolNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 	if n.err != nil {
 		return n

@@ -113,7 +113,7 @@ func TestBusinessRuleEncapsulation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("解析失败: %v", err)
 	}
- 
+
 	root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(p xjson.Node) bool {
 			return p.Get("stock").Int() > 0 &&
@@ -494,7 +494,7 @@ func TestArraySetOnMixedTypesError(t *testing.T) {
 	root, _ := xjson.Parse(data)
 	arr := root.Query("/arr")
 	arr.Set("anyKey", "anyValue")
-	t.Log("期望 Set 在混合类型数组上产生错误 (检查目标节点的 Error)")
+	// t.Log("期望 Set 在混合类型数组上产生错误 (检查目标节点的 Error)")
 	assert.Error(t, arr.Error())
 }
 
@@ -503,7 +503,7 @@ func TestAppendOnObjectError(t *testing.T) {
 	root, _ := xjson.Parse(data)
 	obj := root.Query("/obj")
 	obj.Append(2)
-	t.Log("期望在对象上 Append 产生错误 (检查目标节点)")
+	// t.Log("期望在对象上 Append 产生错误 (检查目标节点)")
 	assert.Error(t, obj.Error())
 }
 
@@ -630,12 +630,12 @@ func TestDebugAppendIssue(t *testing.T) {
 
 	products := root.Get("store").Get("products")
 	if assert.NoError(t, products.Error()) {
-		t.Logf("Initial products length: %d", products.Len())
+		// t.Logf("Initial products length: %d", products.Len())
 		assert.Equal(t, 1, products.Len())
 
 		newProduct := map[string]interface{}{"name": "Product 2"}
 		assert.NoError(t, products.Append(newProduct).Error())
-		t.Logf("Products length after append (same ref): %d", products.Len())
+		// t.Logf("Products length after append (same ref): %d", products.Len())
 
 		freshProducts := root.Get("store").Get("products")
 		if assert.NoError(t, freshProducts.Error()) {
