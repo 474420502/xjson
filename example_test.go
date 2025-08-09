@@ -14,11 +14,20 @@ import (
 )
 
 func TestQuickStartExample(t *testing.T) {
-	data := `{
+	data := `
+	{
 		"store": {
 			"books": [
-				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]},
-				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]}
+				{
+					"title": "Moby Dick",
+					"price": 8.99,
+					"tags": ["classic", "adventure"]
+				},
+				{
+					"title": "Clean Code",
+					"price": 29.99,
+					"tags": ["programming"]
+				}
 			]
 		}
 	}`
@@ -28,47 +37,58 @@ func TestQuickStartExample(t *testing.T) {
 		t.Fatalf("解析失败: %v", err)
 	}
 
-	root.Func("cheap", func(n xjson.Node) xjson.Node {
+	// 1. 注册函数
+	root.RegisterFunc("cheap", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			price, ok := child.Get("price").RawFloat()
 			return ok && price < 20
 		})
-	}).Func("tagged", func(n xjson.Node) xjson.Node {
+	}).RegisterFunc("tagged", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			return child.Get("tags").Contains("adventure")
 		})
 	})
 
-	cheapTitles := root.Query("/store/books[@cheap]/title").Strings()
-	if err := root.Error(); err != nil {
-		t.Errorf("查询失败: %v", err)
-	}
-	expectedCheapTitles := []string{"Moby Dick"}
-	if !compareStringSlices(cheapTitles, expectedCheapTitles) {
-		t.Errorf("期望的廉价书籍: %v, 实际: %v", expectedCheapTitles, cheapTitles)
-	}
-
-	root.Query("/store/books[@tagged]").Set("price", 9.99)
-	if err := root.Error(); err != nil {
-		t.Errorf("修改失败: %v", err)
+	// 2. 查询
+	cheapTitlesNode := root.Query("/store/books[@cheap]/title")
+	if assert.NoError(t, cheapTitlesNode.Error()) {
+		cheapTitles := cheapTitlesNode.Strings()
+		if assert.NoError(t, cheapTitlesNode.Error()) {
+			expectedCheapTitles := []string{"Moby Dick"}
+			assert.Equal(t, expectedCheapTitles, cheapTitles, "期望的廉价书籍不匹配")
+		}
 	}
 
-	// 验证修改后的价格
-	modifiedPrice, ok := root.Query("/store/books[0]/price").RawFloat()
-	if !ok || modifiedPrice != 9.99 {
-		t.Errorf("期望修改后的价格为 9.99, 实际为 %v (ok: %v)", modifiedPrice, ok)
+	// 3. 修改
+	taggedBook := root.Query("/store/books[@tagged]")
+	if assert.NoError(t, taggedBook.Error()) && taggedBook.Len() > 0 {
+		bookToUpdate := taggedBook.Index(0)
+		if assert.NoError(t, bookToUpdate.Error()) {
+			assert.NoError(t, bookToUpdate.Set("price", 9.99).Error())
+		}
 	}
 
-	// 验证整个JSON字符串输出
-	expectedOutput := `{"store":{"books":[{"title":"Moby Dick","price":9.99,"tags":["classic","adventure"]},{"title":"Clean Code","price":29.99,"tags":["programming"]}]}}`
-	actualJSON := root.String()
-	if err := compareJSON(actualJSON, expectedOutput); err != nil {
-		t.Errorf("期望的JSON输出不匹配: %v\n期望: %s\n实际: %s", err, expectedOutput, actualJSON)
+	// 4. 验证
+	priceNode := root.Query("/store/books[0]/price")
+	if assert.NoError(t, priceNode.Error()) {
+		modifiedPrice, ok := priceNode.RawFloat()
+		t.Logf("期望修改后的价格为 9.99, 实际为 %v (ok: %v)", modifiedPrice, ok)
+		assert.True(t, ok)
+		assert.Equal(t, 9.99, modifiedPrice)
+	}
+
+	// 5. 序列化
+	expectedOutput := `{"store":{"books":[{"price":9.99,"tags":["classic","adventure"],"title":"Moby Dick"},{"price":29.99,"tags":["programming"],"title":"Clean Code"}]}}`
+	actualJSONNode := root.String()
+	assert.NoError(t, root.Error())
+	if err := compareJSON(actualJSONNode, expectedOutput); err != nil {
+		t.Errorf("期望的JSON输出不匹配: %v\n期望: %s\n实际: %s", err, expectedOutput, actualJSONNode)
 	}
 }
 
 func TestBusinessRuleEncapsulation(t *testing.T) {
-	data := `{
+	data := `
+	{
 		"products": [
 			{"id": "p1", "name": "Laptop", "stock": 10, "status": "active"},
 			{"id": "p2", "name": "Mouse", "stock": 0, "status": "active"},
@@ -82,26 +102,26 @@ func TestBusinessRuleEncapsulation(t *testing.T) {
 		t.Fatalf("解析失败: %v", err)
 	}
 
-	root.Func("inStock", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(p xjson.Node) bool {
 			return p.Get("stock").Int() > 0 &&
 				p.Get("status").String() == "active"
 		})
 	})
 
-	availableProducts := root.Query("/products[@inStock]/id").Strings()
-	if err := root.Error(); err != nil {
-		t.Errorf("查询失败: %v", err)
-	}
-
-	expectedAvailableProducts := []string{"p1", "p4"}
-	if !compareStringSlices(availableProducts, expectedAvailableProducts) {
-		t.Errorf("期望的可用产品: %v, 实际: %v", expectedAvailableProducts, availableProducts)
+	availableProductsNode := root.Query("/products[@inStock]/id")
+	if assert.NoError(t, availableProductsNode.Error()) {
+		availableProducts := availableProductsNode.Strings()
+		if assert.NoError(t, availableProductsNode.Error()) {
+			expectedAvailableProducts := []string{"p1", "p4"}
+			assert.Equal(t, expectedAvailableProducts, availableProducts, "期望的可用产品不匹配")
+		}
 	}
 }
 
 func TestDataTransformationPipeline(t *testing.T) {
-	data := `{
+	data := `
+	{
 		"rawInput": [
 			{"id": "item1", "name": "  Product A  ", "price": 10.123},
 			{"id": "item2", "name": "Product B", "price": 20.456}
@@ -113,7 +133,7 @@ func TestDataTransformationPipeline(t *testing.T) {
 		t.Fatalf("解析失败: %v", err)
 	}
 
-	root.Func("sanitize", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("sanitize", func(n xjson.Node) xjson.Node {
 		return n.Map(func(item xjson.Node) interface{} {
 			return map[string]interface{}{
 				"id":    item.Get("id").String(),
@@ -124,88 +144,88 @@ func TestDataTransformationPipeline(t *testing.T) {
 	})
 
 	cleanData := root.Query("/rawInput[@sanitize]")
-	if err := root.Error(); err != nil {
-		t.Errorf("数据清洗失败: %v", err)
-	}
+	if assert.NoError(t, cleanData.Error()) {
 
-	// 验证清洗后的数据
-	if cleanData.Index(0).Get("id").String() != "item1" {
-		t.Errorf("期望 id 为 item1, 实际为 %s", cleanData.Index(0).Get("id").String())
-	}
-	if cleanData.Index(0).Get("name").String() != "Product A" {
-		t.Errorf("期望 name 为 'Product A', 实际为 '%s'", cleanData.Index(0).Get("name").String())
-	}
-	if price, ok := cleanData.Index(0).Get("price").RawFloat(); !ok || price != 10.12 {
-		t.Errorf("期望 price 为 10.12, 实际为 %v", price)
-	}
+		item1 := cleanData.Index(0)
+		if assert.NoError(t, item1.Error()) {
+			id := item1.Get("id")
+			if assert.NoError(t, id.Error()) {
+				assert.Equal(t, "item1", id.String())
+			}
+			name := item1.Get("name")
+			if assert.NoError(t, name.Error()) {
+				assert.Equal(t, "Product A", name.String())
+			}
+			price := item1.Get("price")
+			if assert.NoError(t, price.Error()) {
+				if p, ok := price.RawFloat(); ok {
+					assert.Equal(t, 10.12, p)
+				} else {
+					t.Error("无法将价格转换为 float")
+				}
+			}
+		}
 
-	if cleanData.Index(1).Get("id").String() != "item2" {
-		t.Errorf("期望 id 为 item2, 实际为 %s", cleanData.Index(1).Get("id").String())
-	}
-	if cleanData.Index(1).Get("name").String() != "Product B" {
-		t.Errorf("期望 name 为 'Product B', 实际为 '%s'", cleanData.Index(1).Get("name").String())
-	}
-	if price, ok := cleanData.Index(1).Get("price").RawFloat(); !ok || price != 20.46 {
-		t.Errorf("期望 price 为 20.46, 实际为 %v", price)
+		item2 := cleanData.Index(1)
+		if assert.NoError(t, item2.Error()) {
+			id := item2.Get("id")
+			if assert.NoError(t, id.Error()) {
+				assert.Equal(t, "item2", id.String())
+			}
+			name := item2.Get("name")
+			if assert.NoError(t, name.Error()) {
+				assert.Equal(t, "Product B", name.String())
+			}
+			price := item2.Get("price")
+			if assert.NoError(t, price.Error()) {
+				if p, ok := price.RawFloat(); ok {
+					assert.Equal(t, 20.46, p)
+				} else {
+					t.Error("无法将价格转换为 float")
+				}
+			}
+		}
 	}
 }
 
 func TestComprehensiveErrorHandling(t *testing.T) {
 	data := `{"a":{"b":[1,2,3]}}`
+	root, err := xjson.Parse(data)
+	assert.NoError(t, err)
 
-	// 1. 路径不存在
 	t.Run("PathNotFound", func(t *testing.T) {
-		root, _ := xjson.Parse(data)
 		node := root.Query("/a/c")
-		if node.IsValid() {
-			t.Error("期望节点无效，但它有效")
-		}
+		assert.Error(t, node.Error())
+		assert.False(t, node.IsValid())
 	})
 
-	// 2. 索引越界
 	t.Run("IndexOutOfBounds", func(t *testing.T) {
-		root, _ := xjson.Parse(data)
 		node := root.Query("/a/b[5]")
-		if node.IsValid() {
-			t.Error("期望节点无效，但它有效")
-		}
+		assert.Error(t, node.Error())
+		assert.False(t, node.IsValid())
 	})
 
-	// 3. 在非对象上执行 Get
 	t.Run("GetOnNonObject", func(t *testing.T) {
-		root, _ := xjson.Parse(data)
 		node := root.Query("/a/b").Get("key")
-		if node.IsValid() {
-			t.Error("期望节点无效，但它有效")
-		}
+		assert.Error(t, node.Error())
+		assert.False(t, node.IsValid())
 	})
 
-	// 4. 调用未注册的函数
 	t.Run("UnregisteredFunction", func(t *testing.T) {
-		root, _ := xjson.Parse(data)
 		node := root.Query("/a/b[@nonexistent]")
-		if node.IsValid() {
-			t.Error("期望节点无效，但它有效")
-		}
+		assert.Error(t, node.Error())
+		assert.False(t, node.IsValid())
 	})
-
 }
 
 func TestAdvancedDataManipulation(t *testing.T) {
-	data := `{
-		"users": [
-			{"id": 1, "name": "Alice", "scores": [80, 90, 95]},
-			{"id": 2, "name": "Bob", "scores": [70, 85, 88]}
-		],
-		"metadata": {}
-	}`
+	data := `{"users":[{"id":1,"name":"Alice","scores":[80,90,95]},{"id":2,"name":"Bob","scores":[70,85,88]}],"metadata":{}}`
 	root, err := xjson.Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// 1. 使用 Map 计算平均分并转换结构
-	root.Func("withAvg", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("withAvg", func(n xjson.Node) xjson.Node {
 		return n.Map(func(user xjson.Node) interface{} {
 			scoresNode := user.Get("scores")
 			var sum int64 = 0
@@ -221,203 +241,166 @@ func TestAdvancedDataManipulation(t *testing.T) {
 	})
 
 	processedUsers := root.Query("/users[@withAvg]")
-	if err := root.Error(); err != nil {
-		t.Errorf("数据处理失败: %v", err)
-	}
-	expectedJSON := `[{"name":"Alice","avgScore":88.3},{"name":"Bob","avgScore":81}]`
-	if err := compareJSON(processedUsers.String(), expectedJSON); err != nil {
-		t.Errorf("Map 转换结果不匹配: %v", err)
-	}
-
-	// 2. 对特定用户追加一个新分数
-	root.Query("/users[0]/scores").Append(100)
-	if err := root.Error(); err != nil {
-		t.Errorf("Append 操作失败: %v", err)
+	if assert.NoError(t, processedUsers.Error()) {
+		expectedJSON := `[{"avgScore":88.3,"name":"Alice"},{"avgScore":81,"name":"Bob"}]`
+		actualJSON := processedUsers.String()
+		assert.NoError(t, processedUsers.Error())
+		if err := compareJSON(actualJSON, expectedJSON); err != nil {
+			t.Errorf("Map 转换结果不匹配: %v", err)
+		}
 	}
 
-	var newScores []interface{}
-	root.Query("/users[0]/scores").ForEach(func(_ interface{}, val xjson.Node) {
-		newScores = append(newScores, val.Interface())
-	})
-	expectedScores := []interface{}{float64(80), float64(90), float64(95), float64(100)}
-	if !reflect.DeepEqual(newScores, expectedScores) {
-		t.Errorf("期望的分数: %v, 实际: %v", expectedScores, newScores)
+	scoresNode := root.Query("/users[0]/scores")
+	if assert.NoError(t, scoresNode.Error()) {
+		assert.NoError(t, scoresNode.Append(100).Error())
+	}
+	refreshedScoresNode := root.Query("/users[0]/scores")
+	if assert.NoError(t, refreshedScoresNode.Error()) {
+		var newScores []int64
+		refreshedScoresNode.ForEach(func(_ interface{}, val xjson.Node) {
+			if assert.NoError(t, val.Error()) {
+				newScores = append(newScores, val.Int())
+			}
+		})
+		expectedScores := []int64{80, 90, 95, 100}
+		assert.Equal(t, expectedScores, newScores, "分数不匹配")
 	}
 
-	// 3. 设置一个全新的嵌套对象
-	root.Get("metadata").Set("lastUpdated", map[string]interface{}{"by": "test", "timestamp": 12345})
-	if err := root.Error(); err != nil {
-		t.Errorf("Set 操作失败: %v", err)
+	metadataNode := root.Get("metadata")
+	if assert.NoError(t, metadataNode.Error()) {
+		assert.NoError(t, metadataNode.Set("lastUpdated", map[string]interface{}{"by": "test", "timestamp": 12345}).Error())
 	}
-	updatedBy := root.Query("/metadata/lastUpdated/by").String()
-	if updatedBy != "test" {
-		t.Errorf("期望 updatedBy 为 'test', 实际为 '%s'", updatedBy)
+	updatedByNode := root.Query("/metadata/lastUpdated/by")
+	if assert.NoError(t, updatedByNode.Error()) {
+		assert.Equal(t, "test", updatedByNode.String(), "updatedBy 不匹配")
 	}
 }
 
 func TestFunctionManagement(t *testing.T) {
-	data := `[1, 5, 10, 15, 20]`
+	data := `[1,5,10,15,20]`
 	root, _ := xjson.Parse(data)
 
-	// 1. 注册函数
-	root.Func("greaterThan10", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("greaterThan10", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(item xjson.Node) bool {
 			return item.Int() > 10
 		})
 	})
 
-	// 2. 通过路径调用
 	var result1 []int64
-	root.Query("[@greaterThan10]").ForEach(func(_ interface{}, item xjson.Node) {
-		result1 = append(result1, item.Int())
-	})
+	greaterThan10Node := root.Query("[@greaterThan10]")
+	if assert.NoError(t, greaterThan10Node.Error()) {
+		greaterThan10Node.ForEach(func(_ interface{}, item xjson.Node) {
+			if assert.NoError(t, item.Error()) {
+				result1 = append(result1, item.Int())
+			}
+		})
+	}
 	expected := []int64{15, 20}
-	if !reflect.DeepEqual(result1, expected) {
-		t.Errorf("路径函数调用结果不匹配. 期望 %v, 实际 %v", expected, result1)
-	}
+	assert.Equal(t, expected, result1, "路径函数调用结果不匹配")
 
-	// 3. 直接调用函数
 	var result2 []int64
-	root.CallFunc("greaterThan10").ForEach(func(_ interface{}, item xjson.Node) {
-		result2 = append(result2, item.Int())
-	})
-	if !reflect.DeepEqual(result2, expected) {
-		t.Errorf("CallFunc 调用结果不匹配. 期望 %v, 实际 %v", expected, result2)
+	callFuncNode := root.CallFunc("greaterThan10")
+	if assert.NoError(t, callFuncNode.Error()) {
+		callFuncNode.ForEach(func(_ interface{}, item xjson.Node) {
+			if assert.NoError(t, item.Error()) {
+				result2 = append(result2, item.Int())
+			}
+		})
 	}
+	assert.Equal(t, expected, result2, "CallFunc 调用结果不匹配")
 
-	// 4. 移除函数
 	root.RemoveFunc("greaterThan10")
 	node := root.Query("[@greaterThan10]")
-	if node.IsValid() {
-		t.Errorf("期望在调用已移除函数后得到一个无效节点")
-	}
+	assert.Error(t, node.Error(), "期望在调用已移除函数后得到一个错误")
+	assert.False(t, node.IsValid(), "期望节点无效")
 }
 
 func TestComplexChainedQuery(t *testing.T) {
-	// t.Skip("跳过此测试，因为 Query 方法在处理复杂的通配符和路径函数组合时行为不符合预期，这可能反映了核心库的一个问题。")
-
-	data := `{
-		"departments": [
-			{
-				"name": "Engineering",
-				"teams": [
-					{"name": "Backend", "members": [
-						{"name": "Alice", "role": "Senior", "active": true},
-						{"name": "Bob", "role": "Junior", "active": false}
-					]},
-					{"name": "Frontend", "members": [
-						{"name": "Charlie", "role": "Senior", "active": true},
-						{"name": "David", "role": "Senior", "active": true}
-					]}
-				]
-			},
-			{
-				"name": "HR",
-				"teams": [
-					{"name": "Recruiting", "members": [
-						{"name": "Eve", "role": "Manager", "active": true}
-					]}
-				]
-			}
-		]
-	}`
+	data := `{"departments":[{"name":"Engineering","teams":[{"name":"Backend","members":[{"name":"Alice","role":"Senior","active":true},{"name":"Bob","role":"Junior","active":false}]},{"name":"Frontend","members":[{"name":"Charlie","role":"Senior","active":true},{"name":"David","role":"Senior","active":true}]}]},{"name":"HR","teams":[{"name":"Recruiting","members":[{"name":"Eve","role":"Manager","active":true}]}]}]}`
 	root, _ := xjson.Parse(data)
 
-	// 查找所有活跃的 "Senior" 工程师
-	root.Func("seniors", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("seniors", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(member xjson.Node) bool {
 			return member.Get("role").String() == "Senior"
 		})
-	}).Func("active", func(n xjson.Node) xjson.Node {
+	}).RegisterFunc("active", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(member xjson.Node) bool {
 			return member.Get("active").Bool()
 		})
 	})
 
-	// 最终策略：保持在 root 上下文中进行完整的链式调用
-	seniorNames := root.Get("departments").Filter(func(dept xjson.Node) bool {
-		// 筛选出工程部门
-		return dept.Get("name").String() == "Engineering"
-	}).Query(
-		// 在筛选出的部门上执行查询:
-		// 1. `*/teams` -> 获取 teams 数组
-		// 2. `/*/members` -> 获取所有 team 的 members, 结果是一个扁平的成员数组
-		// 3. `[@seniors][@active]` -> 在成员数组上应用函数
-		// 4. `/*/name` -> 从最终的成员对象中提取 name
-		"*/teams/*/members[@seniors][@active]/*/name",
-	).Strings()
+	departments := root.Get("departments")
+	if assert.NoError(t, departments.Error()) {
+		engineeringDept := departments.Filter(func(dept xjson.Node) bool {
+			name := dept.Get("name")
+			return name.Error() == nil && name.String() == "Engineering"
+		})
 
-	if err := root.Error(); err != nil {
-		t.Errorf("复杂查询失败: %v", err)
-	}
-
-	expectedNames := []string{"Alice", "Charlie", "David"}
-	if !compareStringSlices(seniorNames, expectedNames) {
-		t.Errorf("期望的工程师: %v, 实际: %v", expectedNames, seniorNames)
+		if assert.NoError(t, engineeringDept.Error()) {
+			namesNode := engineeringDept.Query("*/teams/*/members[@seniors][@active]/*/name")
+			if assert.NoError(t, namesNode.Error()) {
+				seniorNames := namesNode.Strings()
+				assert.NoError(t, namesNode.Error())
+				expectedNames := []string{"Alice", "Charlie", "David"}
+				assert.Equal(t, expectedNames, seniorNames, "期望的工程师不匹配")
+			}
+		}
 	}
 }
 
 func TestForEachIteration(t *testing.T) {
-	data := `{"items": [{"value": 10}, {"value": 20}, {"value": 30}]}`
+	data := `{"items":[{"value":10},{"value":20},{"value":30}]}`
 	root, _ := xjson.Parse(data)
 
 	var sum int64
 	var count int
-	root.Query("/items/value").ForEach(func(_ interface{}, node xjson.Node) {
-		sum += node.Int()
-		count++
-	})
+	items := root.Query("/items/value")
+	if assert.NoError(t, items.Error()) {
+		items.ForEach(func(_ interface{}, node xjson.Node) {
+			if assert.NoError(t, node.Error()) {
+				sum += node.Int()
+				count++
+			}
+		})
 
-	if err := root.Error(); err != nil {
-		t.Errorf("ForEach 失败: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("期望迭代 3 次, 实际 %d 次", count)
-	}
-	if sum != 60 {
-		t.Errorf("期望总和为 60, 实际为 %d", sum)
+		assert.Equal(t, 3, count, "迭代次数不匹配")
+		assert.Equal(t, int64(60), sum, "总和不匹配")
 	}
 }
 
 func TestNullAndEmptyValues(t *testing.T) {
-	data := `{
-		"a": null,
-		"b": [],
-		"c": {},
-		"d": ""
-	}`
+	data := `{"a":null,"b":[],"c":{},"d":""}`
 	root, _ := xjson.Parse(data)
 
-	// 1. 检查节点类型
-	if root.Get("a").Type() != xjson.NullNode {
-		t.Error("期望 /a 的类型是 NullNode")
+	nodeA := root.Get("a")
+	if assert.NoError(t, nodeA.Error()) {
+		assert.Equal(t, xjson.NullNode, nodeA.Type())
 	}
-	if root.Get("b").Type() == xjson.NullNode {
-		t.Error("期望 /b 的类型不是 NullNode")
+	nodeB := root.Get("b")
+	if assert.NoError(t, nodeB.Error()) {
+		assert.NotEqual(t, xjson.NullNode, nodeB.Type())
 	}
 
-	// 2. 在 null 上操作
 	node := root.Get("a").Get("key")
-	if node.IsValid() {
-		t.Error("期望在 null 上 Get 返回一个无效节点")
+	assert.Error(t, node.Error())
+	assert.False(t, node.IsValid())
+
+	root, _ = xjson.Parse(data)
+	nodeB = root.Query("/b")
+	if assert.NoError(t, nodeB.Error()) {
+		assert.Equal(t, 0, nodeB.Len())
+	}
+	nodeC := root.Query("/c")
+	if assert.NoError(t, nodeC.Error()) {
+		assert.Equal(t, 0, nodeC.Len())
 	}
 
-	// 3. 查询空数组和空对象
-	root, _ = xjson.Parse(data) // 重置节点以清除错误
-	if root.Query("/b").Len() != 0 {
-		t.Error("期望空数组长度为 0")
-	}
-	if root.Query("/c").Len() != 0 {
-		t.Error("期望空对象长度为 0")
-	}
-
-	// 4. 获取空字符串
-	if root.Get("d").String() != "" {
-		t.Error("期望获取到空字符串")
+	nodeD := root.Get("d")
+	if assert.NoError(t, nodeD.Error()) {
+		assert.Equal(t, "", nodeD.String())
 	}
 }
 
-// 辅助函数，用于比较字符串切片
 func compareStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -430,8 +413,6 @@ func compareStringSlices(a, b []string) bool {
 	return true
 }
 
-// compareJSON compares two JSON strings by unmarshaling them into interfaces
-// and then using reflect.DeepEqual.
 func compareJSON(actual, expected string) error {
 	var actualI, expectedI interface{}
 
@@ -450,7 +431,6 @@ func compareJSON(actual, expected string) error {
 	return nil
 }
 
-// 辅助: 捕获 panic
 func mustPanic(t *testing.T, fn func(), msg string) {
 	defer func() {
 		if r := recover(); r == nil {
@@ -461,32 +441,35 @@ func mustPanic(t *testing.T, fn func(), msg string) {
 }
 
 func TestRawAccessAndMustMethods(t *testing.T) {
-	data := `{
-		"s": "hello",
-		"n": 123.45,
-		"b": true,
-		"arr": [1,2,3],
-		"ts": "2024-12-31T23:59:59Z"
-	}`
+	data := `{"s":"hello","n":123.45,"b":true,"arr":[1,2,3],"ts":"2024-12-31T23:59:59Z"}`
 	root, err := xjson.Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if v, ok := root.Get("s").RawString(); !ok || v != "hello" {
-		t.Errorf("RawString 失败: %v %v", v, ok)
+	sNode := root.Get("s")
+	if assert.NoError(t, sNode.Error()) {
+		if v, ok := sNode.RawString(); assert.True(t, ok) {
+			assert.Equal(t, "hello", v)
+		}
 	}
-	if f, ok := root.Get("n").RawFloat(); !ok || f != 123.45 {
-		t.Errorf("RawFloat 失败: %v %v", f, ok)
+	nNode := root.Get("n")
+	if assert.NoError(t, nNode.Error()) {
+		if f, ok := nNode.RawFloat(); assert.True(t, ok) {
+			assert.Equal(t, 123.45, f)
+		}
 	}
-	if root.Get("b").Bool() != true {
-		t.Error("Bool 读取失败")
+	bNode := root.Get("b")
+	if assert.NoError(t, bNode.Error()) {
+		assert.True(t, bNode.Bool())
 	}
-	if root.Get("arr").Len() != 3 {
-		t.Error("Len 读取失败")
+	arrNode := root.Get("arr")
+	if assert.NoError(t, arrNode.Error()) {
+		assert.Equal(t, 3, arrNode.Len())
 	}
-	if root.Get("ts").Time().IsZero() {
-		t.Error("Time 解析失败")
+	tsNode := root.Get("ts")
+	if assert.NoError(t, tsNode.Error()) {
+		assert.False(t, tsNode.Time().IsZero())
 	}
 
 	mustPanic(t, func() { root.Get("arr").MustString() }, "MustString 应 panic")
@@ -495,27 +478,25 @@ func TestRawAccessAndMustMethods(t *testing.T) {
 }
 
 func TestArraySetOnMixedTypesError(t *testing.T) {
-	data := `{"arr": [{"a":1}, 2, {"a":3}]}`
+	data := `{"arr":[{"a":1},2,{"a":3}]}`
 	root, _ := xjson.Parse(data)
 	arr := root.Query("/arr")
-	arr.Set("x", 10) // 混合类型, 应触发错误记录在当前数组节点
-	if arr.Error() == nil {
-		t.Error("期望 Set 在混合类型数组上产生错误 (检查目标节点的 Error)")
-	}
+	arr.Set("anyKey", "anyValue")
+	t.Log("期望 Set 在混合类型数组上产生错误 (检查目标节点的 Error)")
+	assert.Error(t, arr.Error())
 }
 
 func TestAppendOnObjectError(t *testing.T) {
-	data := `{"obj": {"a":1}}`
+	data := `{"obj":{"a":1}}`
 	root, _ := xjson.Parse(data)
 	obj := root.Query("/obj")
 	obj.Append(2)
-	if obj.Error() == nil {
-		t.Error("期望在对象上 Append 产生错误 (检查目标节点)")
-	}
+	t.Log("期望在对象上 Append 产生错误 (检查目标节点)")
+	assert.Error(t, obj.Error())
 }
 
 func TestStringsAndContains(t *testing.T) {
-	data := `{"tags":["go","json","query"], "mixed":["ok",1]}`
+	data := `{"tags":["go","json","query"],"mixed":["ok",1]}`
 	root, _ := xjson.Parse(data)
 	if !root.Query("/tags").Contains("json") {
 		t.Error("Contains 失败")
@@ -525,9 +506,9 @@ func TestStringsAndContains(t *testing.T) {
 		t.Error("Strings 返回不正确")
 	}
 	mixed := root.Query("/mixed")
-	_ = mixed.Strings() // 应该记录错误在 mixed 节点
-	if mixed.Error() == nil {
-		t.Error("期望 mixed.Strings() 在包含非字符串元素时产生错误")
+	if assert.NoError(t, mixed.Error()) {
+		_ = mixed.Strings()
+		assert.Error(t, mixed.Error(), "期望 mixed.Strings() 在包含非字符串元素时产生错误")
 	}
 }
 
@@ -535,31 +516,38 @@ func TestNegativeIndexHandling(t *testing.T) {
 	data := `{"a":[10,20]}`
 	root, _ := xjson.Parse(data)
 	node := root.Query("/a[-1]")
-	if node.IsValid() {
-		t.Error("期望负索引产生无效节点")
-	}
+	assert.Error(t, node.Error())
+	assert.False(t, node.IsValid())
 }
 
 func TestFunctionChainingAndRemove(t *testing.T) {
 	data := `[{"x":1},{"x":2},{"x":3},{"x":4}]`
 	root, _ := xjson.Parse(data)
-	root.Func("gt2", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("gt2", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(c xjson.Node) bool { return c.Get("x").Int() > 2 })
 	})
-	root.Func("dbl", func(n xjson.Node) xjson.Node {
+	root.RegisterFunc("dbl", func(n xjson.Node) xjson.Node {
 		return n.Map(func(c xjson.Node) interface{} { return map[string]int{"x": int(c.Get("x").Int() * 2)} })
 	})
-	chain := root.Query("[@gt2][@dbl]/*/x").Map(func(n xjson.Node) interface{} { return n.Int() })
-	if !chain.IsValid() {
-		t.Fatalf("链式函数结果无效: %v", chain.Error())
-	}
-	vals := chain.Interface()
-	slice, ok := vals.([]interface{})
-	if !ok {
-		t.Fatalf("期望返回切片, 实际类型: %T", vals)
-	}
-	if len(slice) != 2 || slice[0].(float64) != 6 || slice[1].(float64) != 8 {
-		t.Errorf("链式函数结果错误: %v", slice)
+	chain := root.Query("[@gt2][@dbl]/*/x")
+	if assert.NoError(t, chain.Error()) {
+		mapped := chain.Map(func(n xjson.Node) interface{} {
+			if n.Error() != nil {
+				return n.Error()
+			}
+			return n.Int()
+		})
+
+		if assert.NoError(t, mapped.Error()) {
+			assert.True(t, mapped.IsValid())
+			vals := mapped.Interface()
+			slice, ok := vals.([]interface{})
+			if assert.True(t, ok, "期望返回切片") {
+				assert.Equal(t, 2, len(slice))
+				assert.InDelta(t, 6, slice[0], 1e-9)
+				assert.InDelta(t, 8, slice[1], 1e-9)
+			}
+		}
 	}
 	root.RemoveFunc("gt2")
 	if root.Query("[@gt2]").IsValid() {
@@ -570,87 +558,78 @@ func TestFunctionChainingAndRemove(t *testing.T) {
 func TestMapAfterWildcardFlatten(t *testing.T) {
 	data := `{"groups":[{"items":[1,2]},{"items":[3]}]}`
 	root, _ := xjson.Parse(data)
-	// groups/*/items -> [[1,2],[3]] -> wildcard flatten 后 Map
-	root.Func("asIs", func(n xjson.Node) xjson.Node { return n })
-	vals := root.Query("/groups/*/items[@asIs]/*").Map(func(n xjson.Node) interface{} { return n.Int() }).Interface()
-	arr := vals.([]interface{})
-	if len(arr) != 3 || arr[0].(float64) != 1 || arr[2].(float64) != 3 {
-		t.Errorf("扁平化或 Map 失败: %v", arr)
+	root.RegisterFunc("asIs", func(n xjson.Node) xjson.Node { return n })
+	node := root.Query("/groups/*/items[@asIs]/*")
+	if assert.NoError(t, node.Error()) {
+		mapped := node.Map(func(n xjson.Node) interface{} {
+			if n.Error() != nil {
+				return n.Error()
+			}
+			return n.Int()
+		})
+
+		if assert.NoError(t, mapped.Error()) {
+			vals := mapped.Interface()
+			arr, ok := vals.([]interface{})
+			if assert.True(t, ok) {
+				assert.Len(t, arr, 3)
+				assert.InDelta(t, 1, arr[0], 1e-9)
+				assert.InDelta(t, 2, arr[1], 1e-9)
+				assert.InDelta(t, 3, arr[2], 1e-9)
+			}
+		}
 	}
 }
 
 func TestDebugBusinessScenario(t *testing.T) {
-	ecommerceJSON := `{
-		"store": {
-			"products": [
-				{
-					"name": "Product 1"
-				}
-			]
-		}
-	}`
+	ecommerceJSON := `{"store":{"products":[{"name":"Product 1"}]}}`
 
 	root, err := xjson.Parse(ecommerceJSON)
 	assert.NoError(t, err)
 	assert.True(t, root.IsValid())
 
-	// Check initial products
 	products := root.Get("store").Get("products")
-	assert.Equal(t, 1, products.Len())
+	if assert.NoError(t, products.Error()) {
+		assert.Equal(t, 1, products.Len())
 
-	// Add a new product
-	newProduct := map[string]interface{}{
-		"name": "Product 2",
+		newProduct := map[string]interface{}{"name": "Product 2"}
+		assert.NoError(t, products.Append(newProduct).Error())
+
+		t.Logf("Products length: %d", products.Len())
+		assert.Equal(t, 2, products.Len())
+
+		name1 := products.Index(0).Get("name")
+		if assert.NoError(t, name1.Error()) {
+			assert.Equal(t, "Product 1", name1.String())
+		}
+		name2 := products.Index(1).Get("name")
+		if assert.NoError(t, name2.Error()) {
+			assert.Equal(t, "Product 2", name2.String())
+		}
 	}
-
-	products.Append(newProduct)
-
-	// Check updated products
-	products = root.Get("store").Get("products") // Get fresh reference
-	t.Logf("Products length: %d", products.Len())
-	assert.Equal(t, 2, products.Len())
-
-	// Check product names
-	assert.Equal(t, "Product 1", products.Index(0).Get("name").String())
-	assert.Equal(t, "Product 2", products.Index(1).Get("name").String())
 }
 
 func TestDebugAppendIssue(t *testing.T) {
-	ecommerceJSON := `{
-		"store": {
-			"products": [
-				{
-					"name": "Product 1"
-				}
-			]
-		}
-	}`
+	ecommerceJSON := `{"store":{"products":[{"name":"Product 1"}]}}`
 
 	root, err := xjson.Parse(ecommerceJSON)
 	assert.NoError(t, err)
 	assert.True(t, root.IsValid())
 
-	// Check initial length
 	products := root.Get("store").Get("products")
-	t.Logf("Initial products length: %d", products.Len())
-	assert.Equal(t, 1, products.Len())
+	if assert.NoError(t, products.Error()) {
+		t.Logf("Initial products length: %d", products.Len())
+		assert.Equal(t, 1, products.Len())
 
-	// Add a new product
-	newProduct := map[string]interface{}{
-		"name": "Product 2",
+		newProduct := map[string]interface{}{"name": "Product 2"}
+		assert.NoError(t, products.Append(newProduct).Error())
+		t.Logf("Products length after append (same ref): %d", products.Len())
+
+		freshProducts := root.Get("store").Get("products")
+		if assert.NoError(t, freshProducts.Error()) {
+			t.Logf("Products length after append (fresh ref): %d", freshProducts.Len())
+			assert.Equal(t, 2, products.Len())
+			assert.Equal(t, 2, freshProducts.Len())
+		}
 	}
-
-	// Append the new product
-	products.Append(newProduct)
-
-	// Check length after append - using the same reference
-	t.Logf("Products length after append (same ref): %d", products.Len())
-
-	// Get a fresh reference
-	freshProducts := root.Get("store").Get("products")
-	t.Logf("Products length after append (fresh ref): %d", freshProducts.Len())
-
-	// They should both be 2
-	assert.Equal(t, 2, products.Len())
-	assert.Equal(t, 2, freshProducts.Len())
 }

@@ -106,14 +106,14 @@ func TestEcommerceScenario(t *testing.T) {
 	assert.True(t, root.IsValid())
 
 	// Register custom functions
-	root.Func("expensive", func(n Node) Node {
+	root.RegisterFunc("expensive", func(n Node) Node {
 		return n.Filter(func(product Node) bool {
 			price, _ := product.Get("price").RawFloat()
 			return price > 100
 		})
 	})
 
-	root.Func("highlyRated", func(n Node) Node {
+	root.RegisterFunc("highlyRated", func(n Node) Node {
 		return n.Filter(func(product Node) bool {
 			reviews := product.Get("reviews")
 			if reviews.Type() != core.ArrayNode || reviews.Len() == 0 {
@@ -134,43 +134,84 @@ func TestEcommerceScenario(t *testing.T) {
 
 	// Business scenario 1: Find all expensive products
 	expensiveProducts := root.Query("/store/products[@expensive]")
-	assert.True(t, expensiveProducts.IsValid())
-	assert.Equal(t, 1, expensiveProducts.Len()) // Only the laptop is expensive (>100)
-	assert.Equal(t, "Laptop Pro", expensiveProducts.Index(0).Get("name").String())
+	if assert.NoError(t, expensiveProducts.Error()) {
+		assert.True(t, expensiveProducts.IsValid())
+		assert.Equal(t, 1, expensiveProducts.Len()) // Only the laptop is expensive (>100)
+		nameNode := expensiveProducts.Index(0).Get("name")
+		if assert.NoError(t, nameNode.Error()) {
+			assert.Equal(t, "Laptop Pro", nameNode.String())
+		}
+	}
 
 	// Business scenario 2: Find all in-stock products
-	inStockProducts := root.Query("/store/products").Filter(func(product Node) bool {
-		return product.Get("stock").Int() > 0
-	})
-	assert.True(t, inStockProducts.IsValid())
-	assert.Equal(t, 2, inStockProducts.Len()) // Laptop and mouse are in stock
+	inStockProducts := root.Query("/store/products")
+	if assert.NoError(t, inStockProducts.Error()) {
+		filtered := inStockProducts.Filter(func(product Node) bool {
+			stock := product.Get("stock")
+			return stock.Error() == nil && stock.Int() > 0
+		})
+		if assert.NoError(t, filtered.Error()) {
+			assert.True(t, filtered.IsValid())
+			assert.Equal(t, 2, filtered.Len()) // Laptop and mouse are in stock
+		}
+	}
 
 	// Business scenario 3: Find highly rated products
 	highlyRatedProducts := root.Query("/store/products[@highlyRated]")
-	assert.True(t, highlyRatedProducts.IsValid())
-	assert.Equal(t, 1, highlyRatedProducts.Len()) // Only Laptop has high ratings (4.5 avg)
+	if assert.NoError(t, highlyRatedProducts.Error()) {
+		assert.True(t, highlyRatedProducts.IsValid())
+		assert.Equal(t, 1, highlyRatedProducts.Len()) // Only Laptop has high ratings (4.5 avg)
+	}
 
 	// Business scenario 4: Get product names as a string array
-	productNames := root.Query("/store/products").Map(func(product Node) interface{} {
-		return product.Get("name").String()
-	})
-	assert.True(t, productNames.IsValid())
-	names := make([]string, productNames.Len())
-	for i := 0; i < productNames.Len(); i++ {
-		names[i] = productNames.Index(i).String()
+	productNamesNode := root.Query("/store/products")
+	if assert.NoError(t, productNamesNode.Error()) {
+		productNames := productNamesNode.Map(func(product Node) interface{} {
+			name := product.Get("name")
+			if name.Error() != nil {
+				return name.Error()
+			}
+			return name.String()
+		})
+		if assert.NoError(t, productNames.Error()) {
+			assert.True(t, productNames.IsValid())
+			names := make([]string, productNames.Len())
+			for i := 0; i < productNames.Len(); i++ {
+				nameNode := productNames.Index(i)
+				if assert.NoError(t, nameNode.Error()) {
+					names[i] = nameNode.String()
+				}
+			}
+			assert.Contains(t, names, "Laptop Pro")
+			assert.Contains(t, names, "Wireless Mouse")
+			assert.Contains(t, names, "Mechanical Keyboard")
+		}
 	}
-	assert.Contains(t, names, "Laptop Pro")
-	assert.Contains(t, names, "Wireless Mouse")
-	assert.Contains(t, names, "Mechanical Keyboard")
 
 	// Business scenario 5: Update stock for a product
 	products := root.Get("store").Get("products")
-	for i := 0; i < products.Len(); i++ {
-		product := products.Index(i)
-		if product.Get("name").String() == "Wireless Mouse" {
-			product.Set("stock", 95) // Sold 5 mice
-			assert.Equal(t, int64(95), product.Get("stock").Int())
-			break
+	if assert.NoError(t, products.Error()) {
+		for i := 0; i < products.Len(); i++ {
+			product := products.Index(i)
+			if !assert.NoError(t, product.Error()) {
+				continue
+			}
+
+			nameNode := product.Get("name")
+			if !assert.NoError(t, nameNode.Error()) {
+				continue
+			}
+
+			if nameNode.String() == "Wireless Mouse" {
+				setNode := product.Set("stock", 95) // Sold 5 mice
+				if assert.NoError(t, setNode.Error()) {
+					stockNode := product.Get("stock")
+					if assert.NoError(t, stockNode.Error()) {
+						assert.Equal(t, int64(95), stockNode.Int())
+					}
+				}
+				break
+			}
 		}
 	}
 
@@ -187,53 +228,85 @@ func TestEcommerceScenario(t *testing.T) {
 
 	// Get fresh reference to products and append
 	products = root.Get("store").Get("products")
-	t.Logf("Before append - products length: %d", products.Len())
-	result := products.Append(newProduct)
-	if result.Error() != nil {
-		t.Logf("Append error: %v", result.Error())
+	if assert.NoError(t, products.Error()) {
+		t.Logf("Before append - products length: %d", products.Len())
+		result := products.Append(newProduct)
+		assert.NoError(t, result.Error())
 	}
 
 	// Refresh the products node after append
 	products = root.Get("store").Get("products")
-	t.Logf("After append - products length: %d", products.Len())
-	if products.Error() != nil {
-		t.Logf("Products error: %v", products.Error())
+	if assert.NoError(t, products.Error()) {
+		t.Logf("After append - products length: %d", products.Len())
+		assert.Equal(t, 4, products.Len())
 	}
-	assert.Equal(t, 4, products.Len())
 
 	// Find the new product
 	foundNewProduct := false
-	for i := 0; i < products.Len(); i++ {
-		product := products.Index(i)
-		t.Logf("Product %d name: %s", i, product.Get("name").String())
-		if product.Get("name").String() == "USB-C Hub" {
-			foundNewProduct = true
-			break
+	if assert.NoError(t, products.Error()) {
+		for i := 0; i < products.Len(); i++ {
+			product := products.Index(i)
+			if !assert.NoError(t, product.Error()) {
+				continue
+			}
+			nameNode := product.Get("name")
+			if !assert.NoError(t, nameNode.Error()) {
+				continue
+			}
+			t.Logf("Product %d name: %s", i, nameNode.String())
+			if nameNode.String() == "USB-C Hub" {
+				foundNewProduct = true
+				break
+			}
 		}
 	}
 	assert.True(t, foundNewProduct)
 
 	// Business scenario 7: Find customers with orders
-	customersWithOrders := root.Query("/customers").Filter(func(customer Node) bool {
-		return customer.Get("orders").Len() > 0
-	})
-	assert.Equal(t, 1, customersWithOrders.Len())
-	assert.Equal(t, "Alice Johnson", customersWithOrders.Index(0).Get("name").String())
+	customersWithOrders := root.Query("/customers")
+	if assert.NoError(t, customersWithOrders.Error()) {
+		filtered := customersWithOrders.Filter(func(customer Node) bool {
+			orders := customer.Get("orders")
+			return orders.Error() == nil && orders.Len() > 0
+		})
+		if assert.NoError(t, filtered.Error()) {
+			assert.Equal(t, 1, filtered.Len())
+			nameNode := filtered.Index(0).Get("name")
+			if assert.NoError(t, nameNode.Error()) {
+				assert.Equal(t, "Alice Johnson", nameNode.String())
+			}
+		}
+	}
 
 	// Business scenario 8: Get customer emails
-	customerEmails := root.Query("/customers").Map(func(customer Node) interface{} {
-		return customer.Get("email").String()
-	})
-	assert.Equal(t, 2, customerEmails.Len())
+	customerEmailsNode := root.Query("/customers")
+	if assert.NoError(t, customerEmailsNode.Error()) {
+		customerEmails := customerEmailsNode.Map(func(customer Node) interface{} {
+			email := customer.Get("email")
+			if email.Error() != nil {
+				return email.Error()
+			}
+			return email.String()
+		})
+		if assert.NoError(t, customerEmails.Error()) {
+			assert.Equal(t, 2, customerEmails.Len())
+		}
+	}
 
 	// Business scenario 9: Calculate total inventory value
 	products = root.Get("store").Get("products") // Get fresh reference
 	totalValue := 0.0
-	products.ForEach(func(_ interface{}, product Node) {
-		price, _ := product.Get("price").RawFloat()
-		stock := float64(product.Get("stock").Int())
-		totalValue += price * stock
-	})
+	if assert.NoError(t, products.Error()) {
+		products.ForEach(func(_ interface{}, product Node) {
+			priceNode := product.Get("price")
+			stockNode := product.Get("stock")
+			if assert.NoError(t, priceNode.Error()) && assert.NoError(t, stockNode.Error()) {
+				price, _ := priceNode.RawFloat()
+				stock := float64(stockNode.Int())
+				totalValue += price * stock
+			}
+		})
+	}
 	// Expected: 1299.99*15 + 29.99*95 + 89.99*0 + 39.99*50
 	expectedValue := 1299.99*15 + 29.99*95 + 89.99*0 + 39.99*50
 	// Use tolerance for floating point comparison
@@ -243,6 +316,7 @@ func TestEcommerceScenario(t *testing.T) {
 
 	// Business scenario 10: Error handling
 	nonExistent := root.Query("/store/nonexistent/path")
+	assert.Error(t, nonExistent.Error())
 	assert.False(t, nonExistent.IsValid())
 }
 
@@ -317,13 +391,13 @@ func TestAPIScenario(t *testing.T) {
 	assert.True(t, root.IsValid())
 
 	// Register functions for API processing
-	root.Func("active", func(n Node) Node {
+	root.RegisterFunc("active", func(n Node) Node {
 		return n.Filter(func(user Node) bool {
 			return user.Get("active").Bool()
 		})
 	})
 
-	root.Func("admins", func(n Node) Node {
+	root.RegisterFunc("admins", func(n Node) Node {
 		return n.Filter(func(user Node) bool {
 			roles := user.Get("roles")
 			isAdmin := false
@@ -338,7 +412,7 @@ func TestAPIScenario(t *testing.T) {
 		})
 	})
 
-	root.Func("recentLogin", func(n Node) Node {
+	root.RegisterFunc("recentLogin", func(n Node) Node {
 		return n.Filter(func(user Node) bool {
 			lastLoginStr, _ := user.Get("lastLogin").RawString()
 			lastLogin, err := time.Parse(time.RFC3339, lastLoginStr)
@@ -353,85 +427,154 @@ func TestAPIScenario(t *testing.T) {
 
 	// Scenario 1: Get all active users
 	activeUsers := root.Query("/data/users[@active]")
-	assert.Equal(t, 2, activeUsers.Len())
+	if assert.NoError(t, activeUsers.Error()) {
+		assert.Equal(t, 2, activeUsers.Len())
+	}
 
 	// Scenario 2: Get admin users
 	adminUsers := root.Query("/data/users[@admins]")
-	assert.Equal(t, 1, adminUsers.Len())
-	assert.Equal(t, "admin_user", adminUsers.Index(0).Get("username").String())
+	if assert.NoError(t, adminUsers.Error()) {
+		assert.Equal(t, 1, adminUsers.Len())
+		usernameNode := adminUsers.Index(0).Get("username")
+		if assert.NoError(t, usernameNode.Error()) {
+			assert.Equal(t, "admin_user", usernameNode.String())
+		}
+	}
 
 	// Scenario 3: Get recently logged in users
 	recentUsers := root.Query("/data/users[@recentLogin]")
-	assert.Equal(t, 2, recentUsers.Len()) // john_doe and admin_user
+	if assert.NoError(t, recentUsers.Error()) {
+		assert.Equal(t, 2, recentUsers.Len()) // john_doe and admin_user
+	}
 
 	// Scenario 4: Get user full names
-	fullNames := root.Query("/data/users").Map(func(user Node) interface{} {
-		firstName := user.Get("profile").Get("firstName").String()
-		lastName := user.Get("profile").Get("lastName").String()
-		return firstName + " " + lastName
-	})
-	assert.Equal(t, 3, fullNames.Len())
-	names := make([]string, fullNames.Len())
-	for i := 0; i < fullNames.Len(); i++ {
-		names[i] = fullNames.Index(i).String()
+	fullNamesNode := root.Query("/data/users")
+	if assert.NoError(t, fullNamesNode.Error()) {
+		fullNames := fullNamesNode.Map(func(user Node) interface{} {
+			profile := user.Get("profile")
+			if profile.Error() != nil {
+				return profile.Error()
+			}
+			firstName := profile.Get("firstName")
+			if firstName.Error() != nil {
+				return firstName.Error()
+			}
+			lastName := profile.Get("lastName")
+			if lastName.Error() != nil {
+				return lastName.Error()
+			}
+			return firstName.String() + " " + lastName.String()
+		})
+
+		if assert.NoError(t, fullNames.Error()) {
+			assert.Equal(t, 3, fullNames.Len())
+			names := make([]string, fullNames.Len())
+			for i := 0; i < fullNames.Len(); i++ {
+				nameNode := fullNames.Index(i)
+				if assert.NoError(t, nameNode.Error()) {
+					names[i] = nameNode.String()
+				}
+			}
+			assert.Contains(t, names, "John Doe")
+			assert.Contains(t, names, "Jane Smith")
+			assert.Contains(t, names, "Admin User")
+		}
 	}
-	assert.Contains(t, names, "John Doe")
-	assert.Contains(t, names, "Jane Smith")
-	assert.Contains(t, names, "Admin User")
 
 	// Scenario 5: Count users by theme preference
 	darkThemeCount := 0
 	lightThemeCount := 0
-	root.Query("/data/users").ForEach(func(_ interface{}, user Node) {
-		theme := user.Get("profile").Get("preferences").Get("theme").String()
-		switch theme {
-		case "dark":
-			darkThemeCount++
-		case "light":
-			lightThemeCount++
-		}
-	})
+	usersNode := root.Query("/data/users")
+	if assert.NoError(t, usersNode.Error()) {
+		usersNode.ForEach(func(_ interface{}, user Node) {
+			themeNode := user.Get("profile").Get("preferences").Get("theme")
+			if assert.NoError(t, themeNode.Error()) {
+				switch themeNode.String() {
+				case "dark":
+					darkThemeCount++
+				case "light":
+					lightThemeCount++
+				}
+			}
+		})
+	}
 	assert.Equal(t, 2, darkThemeCount)
 	assert.Equal(t, 1, lightThemeCount)
 
 	// Scenario 6: Update user data
 	users := root.Get("data").Get("users")
-	for i := 0; i < users.Len(); i++ {
-		user := users.Index(i)
-		if user.Get("username").String() == "jane_smith" {
-			user.Set("active", true)
-			assert.True(t, user.Get("active").Bool())
-			break
+	if assert.NoError(t, users.Error()) {
+		for i := 0; i < users.Len(); i++ {
+			user := users.Index(i)
+			if !assert.NoError(t, user.Error()) {
+				continue
+			}
+			usernameNode := user.Get("username")
+			if !assert.NoError(t, usernameNode.Error()) {
+				continue
+			}
+			if usernameNode.String() == "jane_smith" {
+				setNode := user.Set("active", true)
+				if assert.NoError(t, setNode.Error()) {
+					activeNode := user.Get("active")
+					if assert.NoError(t, activeNode.Error()) {
+						assert.True(t, activeNode.Bool())
+					}
+				}
+				break
+			}
 		}
 	}
 
 	// Scenario 7: Add a new role to a user
 	users = root.Get("data").Get("users") // Refresh reference
-	for i := 0; i < users.Len(); i++ {
-		user := users.Index(i)
-		if user.Get("username").String() == "admin_user" {
-			// Get current roles and add a new one
-			currentRoles := user.Get("roles").Array()
-			newRoles := make([]interface{}, len(currentRoles)+1)
-			for j, role := range currentRoles {
-				newRoles[j] = role.String()
+	if assert.NoError(t, users.Error()) {
+		for i := 0; i < users.Len(); i++ {
+			user := users.Index(i)
+			if !assert.NoError(t, user.Error()) {
+				continue
 			}
-			newRoles[len(newRoles)-1] = "moderator"
 
-			user.Set("roles", newRoles)
-			// Refresh reference
-			user = users.Index(i)
-			assert.Equal(t, 3, user.Get("roles").Len())
-
-			// Verify the new role exists
-			hasModerator := false
-			user.Get("roles").ForEach(func(_ interface{}, role Node) {
-				if role.String() == "moderator" {
-					hasModerator = true
+			usernameNode := user.Get("username")
+			if !assert.NoError(t, usernameNode.Error()) {
+				continue
+			}
+			if usernameNode.String() == "admin_user" {
+				// Get current roles and add a new one
+				rolesNode := user.Get("roles")
+				if !assert.NoError(t, rolesNode.Error()) {
+					continue
 				}
-			})
-			assert.True(t, hasModerator)
-			break
+
+				currentRoles := rolesNode.Array()
+				newRoles := make([]interface{}, len(currentRoles)+1)
+				for j, role := range currentRoles {
+					newRoles[j] = role.String()
+				}
+				newRoles[len(newRoles)-1] = "moderator"
+
+				assert.NoError(t, user.Set("roles", newRoles).Error())
+
+				// Refresh reference
+				user = root.Get("data").Get("users").Index(i)
+				if !assert.NoError(t, user.Error()) {
+					continue
+				}
+
+				updatedRolesNode := user.Get("roles")
+				if assert.NoError(t, updatedRolesNode.Error()) {
+					assert.Equal(t, 3, updatedRolesNode.Len())
+					// Verify the new role exists
+					hasModerator := false
+					updatedRolesNode.ForEach(func(_ interface{}, role Node) {
+						if assert.NoError(t, role.Error()) && role.String() == "moderator" {
+							hasModerator = true
+						}
+					})
+					assert.True(t, hasModerator)
+				}
+				break
+			}
 		}
 	}
 }
@@ -530,19 +673,19 @@ func TestConfigScenario(t *testing.T) {
 	assert.True(t, root.IsValid())
 
 	// Register functions for config processing
-	root.Func("enabledFeatures", func(n Node) Node {
+	root.RegisterFunc("enabledFeatures", func(n Node) Node {
 		return n.Filter(func(feature Node) bool {
 			return feature.Get("enabled").Bool()
 		})
 	})
 
-	root.Func("fileOutputs", func(n Node) Node {
+	root.RegisterFunc("fileOutputs", func(n Node) Node {
 		return n.Filter(func(output Node) bool {
 			return output.Get("type").String() == "file"
 		})
 	})
 
-	root.Func("securePort", func(n Node) Node {
+	root.RegisterFunc("securePort", func(n Node) Node {
 		return n.Filter(func(server Node) bool {
 			port := server.Get("port").Int()
 			return port > 1024 && port < 49151 // Registered ports range
@@ -553,106 +696,165 @@ func TestConfigScenario(t *testing.T) {
 	requiredSections := []string{"app", "server", "database", "logging"}
 	for _, section := range requiredSections {
 		sectionNode := root.Get(section)
-		assert.True(t, sectionNode.IsValid(), "Missing required section: %s", section)
+		assert.NoError(t, sectionNode.Error(), "Missing required section: %s", section)
+		assert.True(t, sectionNode.IsValid(), "Invalid section: %s", section)
 	}
 
 	// Scenario 2: Check if app is in debug mode
-	isDebug := root.Query("/app/debug").Bool()
-	assert.False(t, isDebug)
+	debugNode := root.Query("/app/debug")
+	if assert.NoError(t, debugNode.Error()) {
+		assert.False(t, debugNode.Bool())
+	}
 
 	// Scenario 3: Get server configuration
-	serverHost := root.Query("/server/host").String()
-	serverPort := root.Query("/server/port").Int()
-	assert.Equal(t, "0.0.0.0", serverHost)
-	assert.Equal(t, int64(8080), serverPort)
+	serverHost := root.Query("/server/host")
+	if assert.NoError(t, serverHost.Error()) {
+		assert.Equal(t, "0.0.0.0", serverHost.String())
+	}
+	serverPort := root.Query("/server/port")
+	if assert.NoError(t, serverPort.Error()) {
+		assert.Equal(t, int64(8080), serverPort.Int())
+	}
 
 	// Scenario 4: Check TLS configuration
-	tlsEnabled := root.Query("/server/tls/enabled").Bool()
-	assert.True(t, tlsEnabled)
+	tlsEnabled := root.Query("/server/tls/enabled")
+	if assert.NoError(t, tlsEnabled.Error()) {
+		assert.True(t, tlsEnabled.Bool())
+	}
 
-	certFile := root.Query("/server/tls/certFile").String()
-	assert.Equal(t, "/etc/ssl/cert.pem", certFile)
+	certFile := root.Query("/server/tls/certFile")
+	if assert.NoError(t, certFile.Error()) {
+		assert.Equal(t, "/etc/ssl/cert.pem", certFile.String())
+	}
 
 	// Scenario 5: Get database connection info
-	dbHost := root.Query("/database/host").String()
-	dbPort := root.Query("/database/port").Int()
-	dbName := root.Query("/database/name").String()
-	assert.Equal(t, "localhost", dbHost)
-	assert.Equal(t, int64(5432), dbPort)
-	assert.Equal(t, "myapp", dbName)
+	dbHost := root.Query("/database/host")
+	if assert.NoError(t, dbHost.Error()) {
+		assert.Equal(t, "localhost", dbHost.String())
+	}
+	dbPort := root.Query("/database/port")
+	if assert.NoError(t, dbPort.Error()) {
+		assert.Equal(t, int64(5432), dbPort.Int())
+	}
+	dbName := root.Query("/database/name")
+	if assert.NoError(t, dbName.Error()) {
+		assert.Equal(t, "myapp", dbName.String())
+	}
 
 	// Scenario 6: Check database pool settings
-	maxConn := root.Query("/database/pool/maxConnections").Int()
-	minConn := root.Query("/database/pool/minConnections").Int()
-	maxLifetime := root.Query("/database/pool/maxLifetimeMinutes").Int()
-	assert.Equal(t, int64(20), maxConn)
-	assert.Equal(t, int64(5), minConn)
-	assert.Equal(t, int64(60), maxLifetime)
+	maxConn := root.Query("/database/pool/maxConnections")
+	if assert.NoError(t, maxConn.Error()) {
+		assert.Equal(t, int64(20), maxConn.Int())
+	}
+	minConn := root.Query("/database/pool/minConnections")
+	if assert.NoError(t, minConn.Error()) {
+		assert.Equal(t, int64(5), minConn.Int())
+	}
+	maxLifetime := root.Query("/database/pool/maxLifetimeMinutes")
+	if assert.NoError(t, maxLifetime.Error()) {
+		assert.Equal(t, int64(60), maxLifetime.Int())
+	}
 
 	// Scenario 7: Get logging configuration
-	logLevel := root.Query("/logging/level").String()
-	logFormat := root.Query("/logging/format").String()
-	assert.Equal(t, "info", logLevel)
-	assert.Equal(t, "json", logFormat)
+	logLevel := root.Query("/logging/level")
+	if assert.NoError(t, logLevel.Error()) {
+		assert.Equal(t, "info", logLevel.String())
+	}
+	logFormat := root.Query("/logging/format")
+	if assert.NoError(t, logFormat.Error()) {
+		assert.Equal(t, "json", logFormat.String())
+	}
 
 	// Scenario 8: Process logging outputs
-	fileOutputs := root.Query("/logging/outputs").Filter(func(output Node) bool {
-		return output.Get("type").String() == "file"
-	})
-	assert.Equal(t, 1, fileOutputs.Len())
+	outputsNode := root.Query("/logging/outputs")
+	if assert.NoError(t, outputsNode.Error()) {
+		fileOutputs := outputsNode.Filter(func(output Node) bool {
+			typeNode := output.Get("type")
+			return typeNode.Error() == nil && typeNode.String() == "file"
+		})
+		if assert.NoError(t, fileOutputs.Error()) {
+			assert.Equal(t, 1, fileOutputs.Len())
+		}
 
-	stdoutOutputs := root.Query("/logging/outputs").Filter(func(output Node) bool {
-		return output.Get("type").String() == "stdout"
-	})
-	assert.Equal(t, 1, stdoutOutputs.Len())
+		stdoutOutputs := outputsNode.Filter(func(output Node) bool {
+			typeNode := output.Get("type")
+			return typeNode.Error() == nil && typeNode.String() == "stdout"
+		})
+		if assert.NoError(t, stdoutOutputs.Error()) {
+			assert.Equal(t, 1, stdoutOutputs.Len())
+		}
+	}
 
 	// Scenario 9: Check feature flags
-	authEnabled := root.Query("/features/authentication/enabled").Bool()
-	cacheEnabled := root.Query("/features/caching/enabled").Bool()
-	monitoringEnabled := root.Query("/features/monitoring/enabled").Bool()
-	assert.True(t, authEnabled)
-	assert.True(t, cacheEnabled)
-	assert.True(t, monitoringEnabled)
+	authEnabled := root.Query("/features/authentication/enabled")
+	if assert.NoError(t, authEnabled.Error()) {
+		assert.True(t, authEnabled.Bool())
+	}
+	cacheEnabled := root.Query("/features/caching/enabled")
+	if assert.NoError(t, cacheEnabled.Error()) {
+		assert.True(t, cacheEnabled.Bool())
+	}
+	monitoringEnabled := root.Query("/features/monitoring/enabled")
+	if assert.NoError(t, monitoringEnabled.Error()) {
+		assert.True(t, monitoringEnabled.Bool())
+	}
 
 	// Scenario 10: Get OAuth2 providers
 	oauthProviders := root.Query("/features/authentication/providers")
-	assert.Equal(t, 2, oauthProviders.Len())
+	if assert.NoError(t, oauthProviders.Error()) {
+		assert.Equal(t, 2, oauthProviders.Len())
 
-	hasLocal := false
-	hasOauth2 := false
-	oauthProviders.ForEach(func(_ interface{}, provider Node) {
-		switch provider.String() {
-		case "local":
-			hasLocal = true
-		case "oauth2":
-			hasOauth2 = true
-		}
-	})
-	assert.True(t, hasLocal)
-	assert.True(t, hasOauth2)
+		hasLocal := false
+		hasOauth2 := false
+		oauthProviders.ForEach(func(_ interface{}, provider Node) {
+			if assert.NoError(t, provider.Error()) {
+				switch provider.String() {
+				case "local":
+					hasLocal = true
+				case "oauth2":
+					hasOauth2 = true
+				}
+			}
+		})
+		assert.True(t, hasLocal)
+		assert.True(t, hasOauth2)
+	}
 
 	// Scenario 11: Get OAuth2 configuration
-	googleClientId := root.Query("/features/authentication/oauth2/google/clientId").String()
-	githubClientId := root.Query("/features/authentication/oauth2/github/clientId").String()
-	assert.Equal(t, "google-client-id", googleClientId)
-	assert.Equal(t, "github-client-id", githubClientId)
+	googleClientId := root.Query("/features/authentication/oauth2/google/clientId")
+	if assert.NoError(t, googleClientId.Error()) {
+		assert.Equal(t, "google-client-id", googleClientId.String())
+	}
+	githubClientId := root.Query("/features/authentication/oauth2/github/clientId")
+	if assert.NoError(t, githubClientId.Error()) {
+		assert.Equal(t, "github-client-id", githubClientId.String())
+	}
 
 	// Scenario 12: Update configuration
 	// Change log level to debug
 	logging := root.Get("logging")
-	logging.Set("level", "debug")
-	assert.Equal(t, "debug", root.Query("/logging/level").String())
+	if assert.NoError(t, logging.Error()) {
+		assert.NoError(t, logging.Set("level", "debug").Error())
+		logLevel := root.Query("/logging/level")
+		if assert.NoError(t, logLevel.Error()) {
+			assert.Equal(t, "debug", logLevel.String())
+		}
+	}
 
 	// Add a new OAuth2 provider
 	oauth2 := root.Get("features").Get("authentication").Get("oauth2")
-	oauth2.Set("facebook", map[string]interface{}{
-		"clientId":     "facebook-client-id",
-		"clientSecret": "facebook-client-secret",
-		"redirectUrl":  "https://myapp.com/auth/facebook/callback",
-	})
+	if assert.NoError(t, oauth2.Error()) {
+		assert.NoError(t, oauth2.Set("facebook", map[string]interface{}{
+			"clientId":     "facebook-client-id",
+			"clientSecret": "facebook-client-secret",
+			"redirectUrl":  "https://myapp.com/auth/facebook/callback",
+		}).Error())
 
-	facebookClientId := root.Query("/features/authentication/oauth2/facebook/clientId").String()
-	assert.Equal(t, "facebook-client-id", facebookClientId)
+		facebookClientId := root.Query("/features/authentication/oauth2/facebook/clientId")
+		if assert.NoError(t, facebookClientId.Error()) {
+			assert.Equal(t, "facebook-client-id", facebookClientId.String())
+		}
+	}
 
 	// Scenario 13: Add a new logging output
 	newOutput := map[string]interface{}{
@@ -662,29 +864,34 @@ func TestConfigScenario(t *testing.T) {
 	}
 
 	loggingOutputs := root.Get("logging").Get("outputs")
-	appendResult := loggingOutputs.Append(newOutput)
-	if appendResult.Error() != nil {
-		// preserve original log semantics
-		t.Logf("Append logging output error: %v", appendResult.Error())
+	if assert.NoError(t, loggingOutputs.Error()) {
+		appendResult := loggingOutputs.Append(newOutput)
+		assert.NoError(t, appendResult.Error())
 	}
 
 	// Refresh the logging outputs node
 	loggingOutputs = root.Get("logging").Get("outputs")
-	t.Logf("Logging outputs length: %d", loggingOutputs.Len())
-	if loggingOutputs.Error() != nil {
-		t.Logf("Logging outputs error: %v", loggingOutputs.Error())
-	}
-	assert.Equal(t, 3, loggingOutputs.Len())
+	if assert.NoError(t, loggingOutputs.Error()) {
+		t.Logf("Logging outputs length: %d", loggingOutputs.Len())
+		assert.Equal(t, 3, loggingOutputs.Len())
 
-	// Find the new syslog output
-	foundSyslog := false
-	for i := 0; i < loggingOutputs.Len(); i++ {
-		output := loggingOutputs.Index(i)
-		t.Logf("Output %d type: %s", i, output.Get("type").String())
-		if output.Get("type").String() == "syslog" {
-			foundSyslog = true
-			break
+		// Find the new syslog output
+		foundSyslog := false
+		for i := 0; i < loggingOutputs.Len(); i++ {
+			output := loggingOutputs.Index(i)
+			if !assert.NoError(t, output.Error()) {
+				continue
+			}
+			typeNode := output.Get("type")
+			if !assert.NoError(t, typeNode.Error()) {
+				continue
+			}
+			t.Logf("Output %d type: %s", i, typeNode.String())
+			if typeNode.String() == "syslog" {
+				foundSyslog = true
+				break
+			}
 		}
+		assert.True(t, foundSyslog)
 	}
-	assert.True(t, foundSyslog)
 }

@@ -2,18 +2,20 @@ package engine
 
 import (
 	"fmt"
+
+	"github.com/474420502/xjson/internal/core"
 )
 
 // NewNodeFromInterface converts a Go interface{} value into an xjson.Node.
 // This is useful for creating new nodes from arbitrary Go types, especially
 // when used with the Map function.
-func NewNodeFromInterface(value interface{}, path string, funcs *map[string]func(Node) Node) (Node, error) {
+func NewNodeFromInterface(value interface{}, path string, funcs *map[string]func(core.Node) core.Node) (core.Node, error) {
 	if funcs == nil {
-		funcs = &map[string]func(Node) Node{} // Initialize if nil (for root)
+		funcs = &map[string]func(core.Node) core.Node{} // Initialize if nil (for root)
 	}
 	switch v := value.(type) {
 	case map[string]interface{}:
-		obj := make(map[string]Node, len(v))
+		obj := make(map[string]core.Node, len(v))
 		for key, val := range v {
 			node, err := NewNodeFromInterface(val, path+"."+key, funcs)
 			if err != nil {
@@ -53,7 +55,7 @@ func NewNodeFromInterface(value interface{}, path string, funcs *map[string]func
 		}
 		return NewNodeFromInterface(converted, path, funcs)
 	case []interface{}:
-		arr := make([]Node, len(v))
+		arr := make([]core.Node, len(v))
 		for i, val := range v {
 			node, err := NewNodeFromInterface(val, path+fmt.Sprintf("[%d]", i), funcs)
 			if err != nil {

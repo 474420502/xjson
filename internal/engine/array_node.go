@@ -5,25 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/474420502/xjson/internal/core"
 )
 
 type arrayNode struct {
 	baseNode
-	value []Node
+	value []core.Node
 }
 
-func NewArrayNode(value []Node, path string, funcs *map[string]func(Node) Node) Node {
+func NewArrayNode(value []core.Node, path string, funcs *map[string]func(core.Node) core.Node) core.Node {
 	if funcs == nil {
-		funcs = &map[string]func(Node) Node{} // Initialize if nil (for root)
+		funcs = &map[string]func(core.Node) core.Node{} // Initialize if nil (for root)
 	}
 	return &arrayNode{value: value, baseNode: baseNode{path: path, funcs: funcs}}
 }
 
-func (n *arrayNode) Type() NodeType { return ArrayNode }
-func (n *arrayNode) Get(key string) Node {
+func (n *arrayNode) Type() core.NodeType { return core.ArrayNode }
+func (n *arrayNode) Get(key string) core.Node {
 	return NewInvalidNode(n.path+"."+key, ErrTypeAssertion)
 }
-func (n *arrayNode) Index(i int) Node {
+func (n *arrayNode) Index(i int) core.Node {
 	if n.err != nil {
 		return n
 	}
@@ -32,14 +34,14 @@ func (n *arrayNode) Index(i int) Node {
 	}
 	return NewInvalidNode(n.path+fmt.Sprintf("[%d]", i), ErrIndexOutOfBounds)
 }
-func (n *arrayNode) Query(path string) Node {
+func (n *arrayNode) Query(path string) core.Node {
 	ops, err := ParseQuery(path)
 	if err != nil {
 		return NewInvalidNode(n.path, err)
 	}
 	return EvaluateQuery(n, ops)
 }
-func (n *arrayNode) ForEach(iterator func(interface{}, Node)) {
+func (n *arrayNode) ForEach(iterator func(interface{}, core.Node)) {
 	if n.err != nil {
 		return
 	}
@@ -79,13 +81,13 @@ func (n *arrayNode) Bool() bool          { return false }
 func (n *arrayNode) MustBool() bool      { panic(ErrTypeAssertion) }
 func (n *arrayNode) Time() time.Time     { return time.Time{} }
 func (n *arrayNode) MustTime() time.Time { panic(ErrTypeAssertion) }
-func (n *arrayNode) Array() []Node {
+func (n *arrayNode) Array() []core.Node {
 	if n.err != nil {
 		return nil
 	}
 	return n.value
 }
-func (n *arrayNode) MustArray() []Node {
+func (n *arrayNode) MustArray() []core.Node {
 	if n.err != nil {
 		panic(n.err)
 	}
@@ -101,14 +103,46 @@ func (n *arrayNode) Interface() interface{} {
 	}
 	return s
 }
-func (n *arrayNode) Func(name string, fn func(Node) Node) Node {
+
+// Deprecated: Use RegisterFunc and CallFunc instead
+func (n *arrayNode) Func(name string, fn func(core.Node) core.Node) core.Node {
 	if n.err != nil {
 		return n
+	}
+	if n.funcs == nil {
+		n.funcs = &map[string]func(core.Node) core.Node{}
 	}
 	(*n.funcs)[name] = fn
 	return n
 }
-func (n *arrayNode) CallFunc(name string) Node {
+
+func (n *arrayNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
+	if n.err != nil {
+		return n
+	}
+	if n.funcs == nil {
+		n.funcs = &map[string]func(core.Node) core.Node{}
+	}
+	(*n.funcs)[name] = fn
+	return n
+}
+
+func (n *arrayNode) Apply(fn core.PathFunc) core.Node {
+	if n.err != nil {
+		return n
+	}
+
+	switch f := fn.(type) {
+	case core.PredicateFunc:
+		return n.Filter(f)
+	case core.TransformFunc:
+		return n.Map(f)
+	default:
+		return NewInvalidNode(n.path, fmt.Errorf("unsupported function signature for Apply: %T", f))
+	}
+}
+
+func (n *arrayNode) CallFunc(name string) core.Node {
 	if n.err != nil {
 		return n
 	}
@@ -117,12 +151,12 @@ func (n *arrayNode) CallFunc(name string) Node {
 		res := fn(n)
 		if res != nil {
 			// If the function returns an ArrayNode (e.g., Filter/Map semantics) or InvalidNode, use it directly.
-			if res.Type() == ArrayNode || res.Type() == InvalidNode {
+			if res.Type() == core.ArrayNode || res.Type() == core.InvalidNode {
 				return res
 			}
 		}
 		// Fallback: treat the function as element-wise transformation (legacy behavior expected by engine tests)
-		var results []Node
+		var results []core.Node
 		for _, child := range n.value {
 			results = append(results, fn(child))
 		}
@@ -130,7 +164,7 @@ func (n *arrayNode) CallFunc(name string) Node {
 	}
 	return NewInvalidNode(n.path, fmt.Errorf("function %s not found", name))
 }
-func (n *arrayNode) RemoveFunc(name string) Node {
+func (n *arrayNode) RemoveFunc(name string) core.Node {
 	if n.err != nil {
 		return n
 	}
@@ -139,11 +173,17 @@ func (n *arrayNode) RemoveFunc(name string) Node {
 }
 
 // New methods for arrayNode
-func (n *arrayNode) Filter(fn func(Node) bool) Node {
+func (n *arrayNode) Filter(fn core.PredicateFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	filteredNodes := make([]Node, 0, len(n.value))
+	
+	// Handle nil function case
+	if fn == nil {
+		return NewInvalidNode(n.path, ErrTypeAssertion)
+	}
+	
+	filteredNodes := make([]core.Node, 0, len(n.value))
 	for _, child := range n.value {
 		if fn(child) {
 			filteredNodes = append(filteredNodes, child)
@@ -152,11 +192,17 @@ func (n *arrayNode) Filter(fn func(Node) bool) Node {
 	return NewArrayNode(filteredNodes, n.path, n.funcs)
 }
 
-func (n *arrayNode) Map(fn func(Node) interface{}) Node {
+func (n *arrayNode) Map(fn core.TransformFunc) core.Node {
 	if n.err != nil {
 		return n
 	}
-	mappedValues := make([]Node, 0, len(n.value))
+	
+	// Handle nil function case
+	if fn == nil {
+		return NewInvalidNode(n.path, ErrTypeAssertion)
+	}
+	
+	mappedValues := make([]core.Node, 0, len(n.value))
 	for _, child := range n.value {
 		mappedValue := fn(child)
 		newNode, err := NewNodeFromInterface(mappedValue, n.path, n.funcs)
@@ -168,7 +214,7 @@ func (n *arrayNode) Map(fn func(Node) interface{}) Node {
 	return NewArrayNode(mappedValues, n.path, n.funcs)
 }
 
-func (n *arrayNode) Set(key string, value interface{}) Node {
+func (n *arrayNode) Set(key string, value interface{}) core.Node {
 	if n.err != nil {
 		return n
 	}
@@ -180,7 +226,7 @@ func (n *arrayNode) Set(key string, value interface{}) Node {
 			return n
 		}
 
-		if child.Type() != ObjectNode {
+		if child.Type() != core.ObjectNode {
 			n.setError(ErrTypeAssertion) // Set error if any element is not an object.
 			return n
 		}
@@ -199,7 +245,7 @@ func (n *arrayNode) Set(key string, value interface{}) Node {
 	return n
 }
 
-func (n *arrayNode) Append(value interface{}) Node {
+func (n *arrayNode) Append(value interface{}) core.Node {
 	if n.err != nil {
 		return n
 	}
@@ -241,7 +287,7 @@ func (n *arrayNode) Strings() []string {
 	}
 	var s []string
 	for _, node := range n.value {
-		if node.Type() == StringNode {
+		if node.Type() == core.StringNode {
 			s = append(s, node.String())
 		} else {
 			// If not all elements are strings, return nil or an error
@@ -257,12 +303,12 @@ func (n *arrayNode) Contains(value string) bool {
 		return false
 	}
 	for _, child := range n.value {
-		if child.Type() == StringNode && child.String() == value {
+		if child.Type() == core.StringNode && child.String() == value {
 			return true
 		}
 	}
 	return false
 }
 
-func (n *arrayNode) AsMap() map[string]Node     { return nil }
-func (n *arrayNode) MustAsMap() map[string]Node { panic(ErrTypeAssertion) }
+func (n *arrayNode) AsMap() map[string]core.Node     { return nil }
+func (n *arrayNode) MustAsMap() map[string]core.Node { panic(ErrTypeAssertion) }

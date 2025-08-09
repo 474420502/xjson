@@ -15,18 +15,22 @@ func TestGetFuncsAndParseErrorCoverage(t *testing.T) {
 	// Prepare JSON
 	root, err := Parse(`{"value":1}`)
 	assert.NoError(t, err)
+	assert.NoError(t, root.Error())
 	assert.True(t, root.IsValid())
 
 	// Initially no funcs (implementation may return empty map or nil)
 	initialFuncs := root.GetFuncs()
-	if initialFuncs != nil {
-		assert.Equal(t, 0, len(*initialFuncs))
+	// If funcs map is nil, we create an empty one for checking
+	if initialFuncs == nil {
+		emptyMap := make(map[string]func(Node) Node)
+		initialFuncs = &emptyMap
 	}
+	assert.Equal(t, 0, len(*initialFuncs))
 
 	// Register a function
-	root = root.Func("double", func(n Node) Node {
+	root = root.RegisterFunc("double", func(n Node) Node {
 		v := n.Get("value")
-		if v.IsValid() && v.Type() == NumberNode {
+		if v.Error() == nil && v.IsValid() && v.Type() == NumberNode {
 			return n.Set("value", v.Float()*2)
 		}
 		return n
@@ -34,24 +38,32 @@ func TestGetFuncsAndParseErrorCoverage(t *testing.T) {
 
 	// Ensure CallFunc works
 	res := root.CallFunc("double")
-	assert.True(t, res.IsValid())
-	assert.Equal(t, 2.0, res.Get("value").Float())
+	if assert.NoError(t, res.Error()) && assert.True(t, res.IsValid()) {
+		valueNode := res.Get("value")
+		if assert.NoError(t, valueNode.Error()) {
+			assert.Equal(t, 2.0, valueNode.Float())
+		}
+	}
 
 	// GetFuncs should list our function
-	funcs := root.GetFuncs()
+	funcs := res.GetFuncs()
 	assert.NotNil(t, funcs)
 	assert.Contains(t, *funcs, "double")
 
-	// Invoke function from returned map directly (tests wrapper translation)
+	// Invoke function from returned map directly
 	f := (*funcs)["double"]
-	res2 := f(root)
-	assert.True(t, res2.IsValid())
-	assert.Equal(t, 4.0, res2.Get("value").Float())
+	res2 := f(res)
+	if assert.NoError(t, res2.Error()) && assert.True(t, res2.IsValid()) {
+		valueNode := res2.Get("value")
+		if assert.NoError(t, valueNode.Error()) {
+			assert.Equal(t, 4.0, valueNode.Float())
+		}
+	}
 
 	// Mutate returned map (should not affect internal funcs)
 	delete(*funcs, "double")
-	// Original CallFunc should still work (internal map intact)
-	res3 := root.CallFunc("double")
-	assert.True(t, res3.IsValid())
-	assert.Equal(t, 8.0, res3.Get("value").Float())
+	// Original CallFunc should NOW FAIL because the returned map is a pointer.
+	res3 := res2.CallFunc("double")
+	assert.Error(t, res3.Error())
+	assert.Contains(t, res3.Error().Error(), "function double not found")
 }

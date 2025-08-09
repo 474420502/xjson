@@ -24,6 +24,22 @@ const (
 	InvalidNode
 )
 
+// PathFunc is a generic function container for passing different function signatures
+// to the enhanced Func method.
+type PathFunc interface{}
+
+// UnaryPathFunc is a node-to-node transformation function, maintaining existing functionality.
+// This is the function signature that can be registered and called later.
+type UnaryPathFunc func(node Node) Node
+
+// PredicateFunc is a predicate function that takes a node and returns a boolean.
+// Mainly used for filtering operations.
+type PredicateFunc func(node Node) bool
+
+// TransformFunc is a transformation function that takes a node and returns an arbitrary value.
+// Mainly used for mapping operations.
+type TransformFunc func(node Node) interface{}
+
 // Accessor provides methods for accessing node properties and values.
 type Accessor interface {
 	// Type returns the data type of the node.
@@ -156,15 +172,20 @@ type Mutator interface {
 type Functional interface {
 	// Filter applies a function to each element in a collection (array or object values)
 	// and returns a new Node containing only the elements for which the function returns true.
-	Filter(fn func(Node) bool) Node
-
+	Filter(fn PredicateFunc) Node
+	
 	// Map applies a transformation function to each element in a collection (array or object values)
 	// and returns a new Node (typically an array) containing the results of the transformations.
-	Map(fn func(Node) interface{}) Node
+	Map(fn TransformFunc) Node
 
-	// Func registers a custom function that can be called during queries.
-	Func(name string, fn func(Node) Node) Node
+	// RegisterFunc registers a named function that can be called during queries.
+	// Only UnaryPathFunc functions (Node -> Node) can be registered for later use.
+	RegisterFunc(name string, fn UnaryPathFunc) Node
 
+	// Apply immediately applies a function (predicate or transformation) to the node.
+	// This method does not register anything, it just executes the function immediately.
+	Apply(fn PathFunc) Node
+	
 	// CallFunc calls a registered custom function.
 	CallFunc(name string) Node
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/474420502/xjson/internal/core"
 )
 
 type OpType int
@@ -75,27 +77,27 @@ func ParseQuery(path string) ([]Operation, error) {
 	return ops, nil
 }
 
-func EvaluateQuery(node Node, ops []Operation) Node {
+func EvaluateQuery(node core.Node, ops []Operation) core.Node {
 	currentNode := node
 
 	// helper to flatten one level if children are arrays
-	flattenIfNestedArrays := func(n Node) Node {
-		if n.Type() != ArrayNode {
+	flattenIfNestedArrays := func(n core.Node) core.Node {
+		if n.Type() != core.ArrayNode {
 			return n
 		}
 		var hasArray bool
-		n.ForEach(func(_ interface{}, v Node) {
-			if v.Type() == ArrayNode {
+		n.ForEach(func(_ interface{}, v core.Node) {
+			if v.Type() == core.ArrayNode {
 				hasArray = true
 			}
 		})
 		if !hasArray {
 			return n
 		}
-		var flat []Node
-		n.ForEach(func(_ interface{}, v Node) {
-			if v.Type() == ArrayNode {
-				v.ForEach(func(_ interface{}, inner Node) {
+		var flat []core.Node
+		n.ForEach(func(_ interface{}, v core.Node) {
+			if v.Type() == core.ArrayNode {
+				v.ForEach(func(_ interface{}, inner core.Node) {
 					if inner.IsValid() {
 						flat = append(flat, inner)
 					}
@@ -116,15 +118,15 @@ func EvaluateQuery(node Node, ops []Operation) Node {
 		case OpGet:
 			if op.Key == "*" {
 				switch currentNode.Type() {
-				case ObjectNode:
-					var nextNodes []Node
-					currentNode.ForEach(func(_ interface{}, v Node) {
+				case core.ObjectNode:
+					var nextNodes []core.Node
+					currentNode.ForEach(func(_ interface{}, v core.Node) {
 						if v.IsValid() {
 							nextNodes = append(nextNodes, v)
 						}
 					})
 					currentNode = NewArrayNode(nextNodes, currentNode.Path(), currentNode.GetFuncs())
-				case ArrayNode:
+				case core.ArrayNode:
 					// flatten nested arrays when wildcard applied
 					currentNode = flattenIfNestedArrays(currentNode)
 				default:
@@ -132,10 +134,10 @@ func EvaluateQuery(node Node, ops []Operation) Node {
 				}
 				continue
 			}
-			if currentNode.Type() == ArrayNode {
+			if currentNode.Type() == core.ArrayNode {
 				// map Get over elements
-				var nextNodes []Node
-				currentNode.ForEach(func(_ interface{}, elementNode Node) {
+				var nextNodes []core.Node
+				currentNode.ForEach(func(_ interface{}, elementNode core.Node) {
 					child := elementNode.Get(op.Key)
 					if child.IsValid() {
 						nextNodes = append(nextNodes, child)
