@@ -1,24 +1,19 @@
-**好的，收到指示。这次我将提供完整的、未删节的最终版设计文档，包含您特别要求的“使用场景”部分。**
+# XJSON - 统一节点模型JSON处理器 (v0.0.2 修订版)
 
----
+**XJSON** **是一个强大的 Go JSON 处理库，采用完全统一的** **Node** **模型，支持路径函数、流式操作和灵活的查询语法。**
 
-# XJSON - 统一节点模型JSON处理器 (v0.0.1 修订版)
-
-**XJSON** **现在采用完全统一的** **Node** **模型，支持路径函数和流式操作。此版本采纳了社区建议，引入了更健壮的错误处理机制和更精确的性能模型描述。**
-
-## ✨ 核心变更
+## ✨ 核心特性
 
 * **🎯** **单一节点类型**：所有操作都基于 **xjson.Node**，无 **Result** **类型。**
 * **🧩** **路径函数**：通过 **/path[@func]/subpath** **语法将自定义逻辑注入查询。**
-* **🔗** **链式注册**：**node.Func("name", fn)** **支持流畅的函数定义。**
+* **🔗** **链式操作**：支持流畅的函数注册、查询和数据操作。
 * **🌀** **健壮的错误处理**：通过 **node.Error()** **在链式调用末尾统一检查错误。**
 * **⚡️** **性能导向**：通过高效的链式操作和原生值访问实现零拷贝级别的性能。
+* **🌟** **通配符查询**：支持 **`*`** 通配符和复杂的路径表达式。
 
 ## 🚀 快速开始
 
-**code**go
-
-```
+```go
 package main
 
 import (
@@ -42,20 +37,19 @@ func main() {
 		panic(err)
 	}
 
-    // 2. 链式注册函数
-	root.Func("cheap", func(n xjson.Node) xjson.Node {
+    // 2. 注册函数
+	root.RegisterFunc("cheap", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			price, _ := child.Get("price").RawFloat()
 			return price < 20
 		})
-	}).Func("tagged", func(n xjson.Node) xjson.Node {
+	}).RegisterFunc("tagged", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			return child.Get("tags").Contains("adventure")
 		})
 	})
 
 	// 3. 使用路径函数查询
-	// 注意：在链式调用末尾检查错误
 	cheapTitles := root.Query("/store/books[@cheap]/title").Strings()
 	if err := root.Error(); err != nil {
 		fmt.Println("查询失败:", err)
@@ -63,7 +57,7 @@ func main() {
 	}
 	fmt.Println("Cheap books:", cheapTitles) // ["Moby Dick"]
 
-	// 4. 修改数据并检查错误
+	// 4. 修改数据
 	root.Query("/store/books[@tagged]").Set("price", 9.99)
 	if err := root.Error(); err != nil {
 		fmt.Println("修改失败:", err)
@@ -79,130 +73,173 @@ func main() {
 
 ### 1. 统一节点模型
 
-**所有 JSON 元素（对象、数组、字符串、数字等），包括查询结果集，都由** **Node** **接口表示。这极大地简化了 API。**
+**所有 JSON 元素（对象、数组、字符串、数字等），包括查询结果集，都由** **Node** **接口表示。**
 
-**code**Go
-
-```
+```go
 type Node interface {
+    // 基础访问
+    Type() NodeType
+    IsValid() bool
+    Error() error
+    Path() string
+    Raw() string
+    
     // 查询方法
     Query(path string) Node
     Get(key string) Node
     Index(i int) Node
   
     // 流式操作
-    Filter(fn func(Node) bool) Node
-    Map(fn func(Node) interface{}) Node
-    ForEach(fn func(int, Node)) 
+    Filter(fn PredicateFunc) Node
+    Map(fn TransformFunc) Node
+    ForEach(fn func(keyOrIndex interface{}, value Node)) 
+    Len() int
   
     // 写操作
     Set(key string, value interface{}) Node
     Append(value interface{}) Node
   
     // 函数支持
-    Func(name string, fn func(Node) Node) Node
+    RegisterFunc(name string, fn UnaryPathFunc) Node
     CallFunc(name string) Node
-
-    // 错误处理
-    Error() error
-
-    // 原生值访问 (用于性能优化)
+    RemoveFunc(name string) Node
+    Apply(fn PathFunc) Node
+    
+    // 类型转换
+    String() string
+    Float() float64
+    Int() int64
+    Bool() bool
+    Array() []Node
+    Interface() interface{}
+    
+    // 原生值访问 (性能优化)
     RawFloat() (float64, bool)
     RawString() (string, bool)
     // ... 其他原生类型
 }
 ```
 
-### 2. 错误处理
+### 2. 函数类型系统
 
-**XJSON 采用链式调用友好的错误处理模式。任何操作（如** **Query**, **Get**, **Set**）在执行失败时（例如路径不存在、类型不匹配），都会在内部记录第一个发生的错误。您可以在一系列操作后，通过调用 **Error()** **方法一次性检查整个链条中是否出现了问题。**
+**XJSON 提供了多种函数类型以支持不同的操作场景：**
 
-**code**Go
+```go
+// 路径函数 - 通用函数容器
+type PathFunc interface{}
 
+// 一元路径函数 - 节点到节点的转换
+type UnaryPathFunc func(node Node) Node
+
+// 谓词函数 - 用于过滤操作
+type PredicateFunc func(node Node) bool
+
+// 转换函数 - 用于映射操作
+type TransformFunc func(node Node) interface{}
 ```
+
+### 3. 错误处理
+
+**XJSON 采用链式调用友好的错误处理模式：**
+
+```go
 // 无需在每一步都检查 err
 value := root.Query("/path/that/does/not/exist").Get("key").Int()
 
 // 在最后统一检查
 if err := root.Error(); err != nil {
-    // 处理错误: "path /path/that/does/not/exist not found"
     fmt.Println("操作链失败:", err)
 }
 ```
 
-### 3. 路径函数语法
+### 4. 路径查询语法
 
-**code**Go
+**支持丰富的查询语法：**
 
+```go
+// 基本路径
+"/store/books/0/title"
+
+// 数组索引
+"/store/books[0]/title"
+
+// 函数调用
+"/store/books[@cheap]/title"
+
+// 通配符
+"/store/*/title"  // 匹配 store 下所有子节点的 title
+
+// 混合语法
+"/store/books[@filter][0]/name"
 ```
-// 基本格式
-/path/to/[@funcName]/remaining/path
 
-// 实际用例
-node.Query("/data/items[@filter]/name")
+### 5. 函数注册和调用
 
-// 函数可以出现在任意位置
-node.Query("/data[@process]/items[@filter]")
-```
+**新版本的函数系统更加强大和灵活：**
 
-### 4. 函数签名设计
-
- **路径函数为** **type PathFunc func(Node) Node**，它接收一个 **Node** **并必须返回一个** **Node**。为了保证链式调用的健壮性，我们**强烈建议**：
-
-> **路径函数应始终返回一个“节点集合”类型的** **Node**，即使该集合为空或只包含一个元素。
-
-**一个代表集合的** **Node** **可以安全地接受后续的** **.Filter()**, **.Get()**（隐式映射）或 **/subpath**（路径查询）操作。如果函数返回一个终值（如字符串或数字节点），后续的链式调用可能会意外失败。
-
-**示例：**
-
-**code**Go
-
-```
-type PathFunc func(Node) Node
-
-// ✅ 推荐: 总是返回一个可以被继续查询的节点 (即使是空的)
-func filterExpensive(n xjson.Node) xjson.Node {
-    // Filter 本身就返回一个节点集合，符合要求
+```go
+// 注册函数（推荐方式）
+root.RegisterFunc("filterFunc", func(n xjson.Node) xjson.Node {
     return n.Filter(func(child xjson.Node) bool {
-        price, _ := child.Get("price").RawFloat()
-        return price > 50
+        return child.Get("price").Float() > 10
     })
-}
+})
 
-// ❌ 不推荐: 返回一个终值节点，这会中断链式查询
-func getFirstPrice(n xjson.Node) xjson.Node {
-    // .Index(0).Get("price") 可能返回一个数字节点
-    // 后续的 /name 查询会失败
-    return n.Index(0).Get("price") 
-}
+// 路径查询中使用函数
+result := root.Query("/items[@filterFunc]/name")
 
-// 使用时的区别
-// root.Query("/books[@getFirstPrice]/author") // 可能失败！
+// 直接调用函数
+result := root.CallFunc("filterFunc")
+
+// 使用 Apply 立即应用函数
+result := root.Apply(func(n xjson.Node) bool {
+    return n.Get("active").Bool()
+})
+
+// 移除函数
+root.RemoveFunc("filterFunc")
 ```
 
-## 🛠️ 完整API参考
+## 🛠️ 完整 API 参考
 
 ### 函数管理
 
-| **方法**             | **描述**                       | **示例**                                    |
-| -------------------------- | ------------------------------------ | ------------------------------------------------- |
-| **Func(name, fn)**   | **注册路径函数**               | **node.Func("cheap", filterCheap)**         |
-| **CallFunc(name)**   | **直接调用函数**               | **node.CallFunc("cheap")**                  |
-| **RemoveFunc(name)** | **移除函数**                   | **node.RemoveFunc("cheap")**                |
-| **Error() error**    | **返回链式调用中的第一个错误** | **if err := n.Error(); err != nil { ... }** |
+| 方法 | 描述 | 示例 |
+|------|------|------|
+| **RegisterFunc(name, fn)** | 注册路径函数 | `root.RegisterFunc("cheap", filterCheap)` |
+| **CallFunc(name)** | 直接调用函数 | `root.CallFunc("cheap")` |
+| **RemoveFunc(name)** | 移除函数 | `root.RemoveFunc("cheap")` |
+| **Apply(fn)** | 立即应用函数 | `root.Apply(predicateFunc)` |
+| **Error() error** | 返回链式调用中的第一个错误 | `if err := n.Error(); err != nil { ... }` |
+
+### 流式操作
+
+| 方法 | 描述 | 示例 |
+|------|------|------|
+| **Filter(fn)** | 过滤节点集合 | `n.Filter(func(n Node) bool { return n.Get("active").Bool() })` |
+| **Map(fn)** | 转换节点集合 | `n.Map(func(n Node) interface{} { return n.Get("name").String() })` |
+| **ForEach(fn)** | 遍历节点集合 | `n.ForEach(func(i interface{}, v Node) { fmt.Println(v.String()) })` |
+
+### 原生值访问
+
+| 方法 | 描述 | 示例 |
+|------|------|------|
+| **RawFloat()** | 直接获取 float64 值 | `if price, ok := n.RawFloat(); ok { ... }` |
+| **RawString()** | 直接获取 string 值 | `if name, ok := n.RawString(); ok { ... }` |
+| **Strings()** | 获取字符串数组 | `tags := n.Strings()` |
+| **Contains(value)** | 检查是否包含字符串 | `if n.Contains("target") { ... }` |
 
 ## ⚡ 性能优化
 
-* **函数缓存**：编译后的路径（包含函数占位符）会被缓存，以加速重复查询。
-* **高效链式操作**：虽然 XJSON 采用及早求值（Eager Evaluation），但每个操作都经过高度优化。**Node** **的内部表示被设计为尽可能减少数据拷贝和内存分配，从而实现高效的中间步骤。这提供了可预测的性能和相对简单的执行模型。**
-* **短路优化**：在某些过滤和查询场景中支持提前终止，避免不必要的计算。
-* **原生值访问**：对于性能敏感的代码路径，可以使用 **Raw** **系列方法（如** **RawFloat**, **RawString**）。这些方法直接从底层内存访问数据，避免创建中间 **Node** **对象，实现零拷贝读取。**
+* **函数缓存**：编译后的路径会被缓存，以加速重复查询。
+* **原生值访问**：`Raw` 系列方法直接从底层内存访问数据，避免创建中间 **Node** 对象。
+* **短路优化**：在某些过滤和查询场景中支持提前终止。
+* **高效链式操作**：每个操作都经过高度优化，减少数据拷贝和内存分配。
 
-**code**Go
+**高性能函数示例：**
 
-```
-// 高性能函数示例，使用 RawFloat 避免分配
-root.Func("fastFilter", func(n xjson.Node) xjson.Node {
+```go
+root.RegisterFunc("fastFilter", func(n xjson.Node) xjson.Node {
     return n.Filter(func(child xjson.Node) bool {
         // 直接获取原生 float64 值，无 Node 开销
         if price, ok := child.Get("price").RawFloat(); ok {
@@ -217,50 +254,60 @@ root.Func("fastFilter", func(n xjson.Node) xjson.Node {
 
 ### 业务规则封装
 
-**可以将复杂的业务逻辑封装成可复用的路径函数，使查询语义化。**
-
-**code**Go
-
-```
-// 注册一个库存检查函数，用于筛选活跃且有库存的商品
-root.Func("inStock", func(n xjson.Node) xjson.Node {
+```go
+// 注册库存检查函数
+root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
     return n.Filter(func(p xjson.Node) bool {
-        // 注意：为简洁，此处省略了错误检查。在生产代码中，
-        // 可在最后调用 root.Error() 来捕获整个链的错误。
         return p.Get("stock").Int() > 0 &&
                p.Get("status").String() == "active"
     })
 })
 
-// 使用语义化的路径函数进行查询
+// 使用语义化查询
 availableProducts := root.Query("/products[@inStock]")
 ```
 
 ### 数据转换管道
 
-**使用路径函数和** **Map** **操作，可以构建强大的数据清洗和转换管道。**
-
-**code**Go
-
-```
+```go
 import "strings"
 import "math"
 
-// 创建一个数据清洗管道函数
-root.Func("sanitize", func(n xjson.Node) xjson.Node {
+// 创建数据清洗管道
+root.RegisterFunc("sanitize", func(n xjson.Node) xjson.Node {
     return n.Map(func(item xjson.Node) interface{} {
-        // 在 Map 的回调中，返回一个 map 或 struct 来定义新的结构
         return map[string]interface{}{
             "id":    item.Get("id").String(),
             "name":  strings.TrimSpace(item.Get("name").String()),
-            "price": math.Round(item.Get("price").Float()*100) / 100, // 四舍五入到2位小数
+            "price": math.Round(item.Get("price").Float()*100) / 100,
         }
     })
 })
 
-// 对原始数据应用清洗管道，得到规整的数据
+// 应用清洗管道
 cleanData := root.Query("/rawInput[@sanitize]")
-// cleanData 现在是一个包含清洗后对象的节点
+```
+
+### 复杂数据聚合
+
+```go
+// 计算平均分
+root.RegisterFunc("withAvg", func(n xjson.Node) xjson.Node {
+    return n.Map(func(user xjson.Node) interface{} {
+        scoresNode := user.Get("scores")
+        var sum int64 = 0
+        scoresNode.ForEach(func(_ interface{}, score xjson.Node) {
+            sum += score.Int()
+        })
+        avg := float64(sum) / float64(scoresNode.Len())
+        return map[string]interface{}{
+            "name":     user.Get("name").String(),
+            "avgScore": math.Round(avg*10) / 10,
+        }
+    })
+})
+
+processedUsers := root.Query("/users[@withAvg]")
 ```
 
 ## 🌟 设计优势
@@ -269,3 +316,55 @@ cleanData := root.Query("/rawInput[@sanitize]")
 * **灵活组合**：路径函数与流式操作无缝结合，表达能力强。
 * **健壮可靠**：链式错误处理机制让代码更简洁且不易出错。
 * **性能优异**：通过高效实现和原生访问 API 保持高性能。
+* **类型安全**：完善的类型系统确保编译时的类型检查。
+* **易于扩展**：模块化设计便于添加新功能。
+
+## 🔄 升级指南
+
+### 从 v0.0.1 升级到 v0.0.2
+
+**主要变化：**
+
+1. **函数系统更新**：
+   ```go
+   // 旧版本 (已弃用)
+   root.Func("name", fn)
+   
+   // 新版本 (推荐)
+   root.RegisterFunc("name", fn)
+   ```
+
+2. **新增 Apply 方法**：
+   ```go
+   // 立即应用函数
+   result := root.Apply(func(n xjson.Node) bool {
+       return n.Get("active").Bool()
+   })
+   ```
+
+3. **类型系统增强**：
+   ```go
+   // 使用具体的函数类型
+   var filterFunc xjson.PredicateFunc = func(n xjson.Node) bool {
+       return n.Get("price").Float() > 10
+   }
+   
+   var transformFunc xjson.TransformFunc = func(n xjson.Node) interface{} {
+       return n.Get("name").String()
+   }
+   ```
+
+4. **通配符支持**：
+   ```go
+   // 新增通配符查询
+   result := root.Query("/store/*/title")
+   ```
+
+**兼容性说明：**
+- 旧的 `Func()` 方法仍然可用，但已被标记为弃用
+- 所有现有的查询语法继续有效
+- 新功能完全向后兼容
+
+## 📄 许可证
+
+MIT License
