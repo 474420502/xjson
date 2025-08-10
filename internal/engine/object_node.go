@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/474420502/xjson/internal/core"
@@ -22,6 +23,13 @@ func newObjectNode(raw []byte, start, end int, parent core.Node, funcs *map[stri
 
 func (n *objectNode) Type() core.NodeType {
 	return core.Object
+}
+
+func (n *objectNode) Query(path string) core.Node {
+	if n.err != nil {
+		return newInvalidNode(n.err)
+	}
+	return applySimpleQuery(n, path)
 }
 
 // ensureParsed parses the children of the object if they haven't been parsed yet.
@@ -83,13 +91,27 @@ func (n *objectNode) ensureParsed() {
 
 func (n *objectNode) Get(key string) core.Node {
 	if n.err != nil {
-		return n
+		return newInvalidNode(n.err)
 	}
 	n.ensureParsed()
 
 	child, ok := n.children[key]
 	if !ok {
 		return newInvalidNode(fmt.Errorf("key not found: %s", key))
+	}
+	// Set the parent of the child to this node
+	if c, ok := child.(*objectNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*arrayNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*stringNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*numberNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*boolNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*nullNode); ok {
+		c.parent = n
 	}
 	return child
 }
@@ -128,6 +150,19 @@ func (n *objectNode) MustAsMap() map[string]core.Node {
 	return n.children
 }
 
+// Keys returns the object's keys in arbitrary order.
+func (n *objectNode) Keys() []string {
+	if n.err != nil {
+		return nil
+	}
+	n.ensureParsed()
+	keys := make([]string, 0, len(n.children))
+	for k := range n.children {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (n *objectNode) Interface() interface{} {
 	if n.err != nil {
 		return nil
@@ -138,6 +173,15 @@ func (n *objectNode) Interface() interface{} {
 		m[k] = v.Interface()
 	}
 	return m
+}
+
+func (n *objectNode) String() string {
+	n.ensureParsed()
+	b, err := json.Marshal(n.Interface())
+	if err != nil {
+		return n.baseNode.String()
+	}
+	return string(b)
 }
 
 func (n *objectNode) SetValue(value interface{}) core.Node {
@@ -153,18 +197,45 @@ func (n *objectNode) SetValue(value interface{}) core.Node {
 	return n
 }
 
+func (n *objectNode) Set(key string, value interface{}) core.Node {
+	if n.err != nil {
+		return n
+	}
+	n.ensureParsed()
+	child, err := NewNodeFromInterface(value)
+	if err != nil {
+		return newInvalidNode(err)
+	}
+	if n.children == nil {
+		n.children = make(map[string]core.Node)
+	}
+	// Set parent of the new child
+	if c, ok := child.(*objectNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*arrayNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*stringNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*numberNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*boolNode); ok {
+		c.parent = n
+	} else if c, ok := child.(*nullNode); ok {
+		c.parent = n
+	}
+	n.children[key] = child
+	return n
+}
+
 func (n *objectNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
 	if n.err != nil {
 		return newInvalidNode(n.err)
 	}
-	newFuncs := make(map[string]core.UnaryPathFunc)
-	if n.funcs != nil && *n.funcs != nil {
-		for k, v := range *n.funcs {
-			newFuncs[k] = v
-		}
+	if n.funcs == nil || *n.funcs == nil {
+		m := make(map[string]core.UnaryPathFunc)
+		n.funcs = &m
 	}
-	newFuncs[name] = fn
-	n.funcs = &newFuncs
+	(*n.funcs)[name] = fn
 	return n
 }
 
@@ -173,13 +244,41 @@ func (n *objectNode) RemoveFunc(name string) core.Node {
 		return newInvalidNode(n.err)
 	}
 	if n.funcs != nil && *n.funcs != nil {
-		newFuncs := make(map[string]core.UnaryPathFunc)
-		for k, v := range *n.funcs {
-			if k != name {
-				newFuncs[k] = v
-			}
-		}
-		n.funcs = &newFuncs
+		delete(*n.funcs, name)
 	}
 	return n
+}
+
+func (n *objectNode) CallFunc(name string) core.Node {
+	if n.err != nil {
+		return newInvalidNode(n.err)
+	}
+	if n.funcs == nil || *n.funcs == nil {
+		return newInvalidNode(fmt.Errorf("func not found: %s", name))
+	}
+	if fn, ok := (*n.funcs)[name]; ok && fn != nil {
+		return fn(n)
+	}
+	return newInvalidNode(fmt.Errorf("func not found: %s", name))
+}
+
+func (n *objectNode) Apply(fn core.PathFunc) core.Node {
+	if n.err != nil {
+		return newInvalidNode(n.err)
+	}
+	switch f := fn.(type) {
+	case core.UnaryPathFunc:
+		return f(n)
+	case core.PredicateFunc:
+		return newInvalidNode(fmt.Errorf("predicate apply requires array node"))
+	case core.TransformFunc:
+		return newInvalidNode(fmt.Errorf("transform apply requires array node"))
+	default:
+		return newInvalidNode(fmt.Errorf("unsupported function type"))
+	}
+}
+
+// GetParent returns the parent node
+func (n *objectNode) GetParent() core.Node {
+	return n.parent
 }

@@ -89,6 +89,7 @@ type Node interface {
 	RawFloat() (float64, bool)
 	RawString() (string, bool)
 	Strings() []string
+	Keys() []string
 	Contains(value string) bool
 	AsMap() map[string]Node
 	MustAsMap() map[string]Node
@@ -203,6 +204,7 @@ func (n *InvalidNode) Interface() interface{}                              { ret
 func (n *InvalidNode) RawFloat() (float64, bool)                           { return 0, false }
 func (n *InvalidNode) RawString() (string, bool)                           { return "", false }
 func (n *InvalidNode) Strings() []string                                   { return nil }
+func (n *InvalidNode) Keys() []string                                      { return nil }
 func (n *InvalidNode) Contains(value string) bool                          { return false }
 func (n *InvalidNode) AsMap() map[string]Node                              { return nil }
 func (n *InvalidNode) MustAsMap() map[string]Node                          { panic(n.Err) }
@@ -249,6 +251,16 @@ func (n *ObjectNode) MustAsMap() map[string]Node {
 		panic(n.Err)
 	}
 	return n.Children
+}
+func (n *ObjectNode) Keys() []string {
+	if n.Err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(n.Children))
+	for k := range n.Children {
+		keys = append(keys, k)
+	}
+	return keys
 }
 func (n *ObjectNode) Interface() interface{} {
 	if n.Err != nil {
@@ -309,6 +321,7 @@ func (n *ArrayNode) MustArray() []Node {
 	}
 	return n.Children
 }
+func (n *ArrayNode) Keys() []string { return nil }
 func (n *ArrayNode) Interface() interface{} {
 	if n.Err != nil {
 		return nil
@@ -393,6 +406,7 @@ func (n *StringNode) MustTime() time.Time {
 	return t
 }
 func (n *StringNode) Interface() interface{} { return n.Value }
+func (n *StringNode) Keys() []string         { return nil }
 
 // NumberNode represents a JSON number.
 type NumberNode struct {
@@ -443,6 +457,7 @@ func (n *NumberNode) Interface() interface{} {
 	f, _ := n.RawFloat()
 	return f
 }
+func (n *NumberNode) Keys() []string { return nil }
 
 // BoolNode represents a JSON boolean.
 type BoolNode struct {
@@ -454,6 +469,7 @@ func (n *BoolNode) Type() NodeType         { return Bool }
 func (n *BoolNode) Bool() bool             { return n.Value }
 func (n *BoolNode) MustBool() bool         { return n.Value }
 func (n *BoolNode) Interface() interface{} { return n.Value }
+func (n *BoolNode) Keys() []string         { return nil }
 
 // NullNode represents a JSON null.
 type NullNode struct {
@@ -462,6 +478,7 @@ type NullNode struct {
 
 func (n *NullNode) Type() NodeType         { return Null }
 func (n *NullNode) Interface() interface{} { return nil }
+func (n *NullNode) Keys() []string         { return nil }
 
 // Placeholder methods to satisfy the Node interface for all concrete types.
 // These should be implemented with actual logic.
@@ -532,6 +549,7 @@ func (n *BaseNode) MustArray() []Node          { n.SetError(ErrTypeAssertion); p
 func (n *BaseNode) RawFloat() (float64, bool)  { n.SetError(ErrTypeAssertion); return 0, false }
 func (n *BaseNode) RawString() (string, bool)  { n.SetError(ErrTypeAssertion); return "", false }
 func (n *BaseNode) Strings() []string          { n.SetError(ErrTypeAssertion); return nil }
+func (n *BaseNode) Keys() []string             { n.SetError(ErrTypeAssertion); return nil }
 func (n *BaseNode) Contains(value string) bool { n.SetError(ErrTypeAssertion); return false }
 func (n *BaseNode) AsMap() map[string]Node     { n.SetError(ErrTypeAssertion); return nil }
 func (n *BaseNode) MustAsMap() map[string]Node { n.SetError(ErrTypeAssertion); panic(n.Err) }

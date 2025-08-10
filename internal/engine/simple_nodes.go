@@ -103,10 +103,19 @@ func (n *stringNode) MustTime() time.Time {
 func (n *stringNode) Interface() interface{} {
 	return n.value
 }
+func (n *stringNode) Keys() []string { return nil }
 
 func (n *stringNode) SetValue(value interface{}) core.Node {
 	n.setError(core.ErrTypeAssertion) // Or a more specific error
 	return n
+}
+
+func (n *stringNode) Strings() []string {
+	return []string{n.value}
+}
+
+func (n *stringNode) Contains(value string) bool {
+	return n.value == value
 }
 
 // numberNode represents a JSON number.
@@ -168,6 +177,7 @@ func (n *numberNode) Interface() interface{} {
 	f, _ := n.RawFloat()
 	return f
 }
+func (n *numberNode) Keys() []string { return nil }
 
 func (n *numberNode) SetValue(value interface{}) core.Node {
 	n.setError(core.ErrTypeAssertion) // Or a more specific error
@@ -195,6 +205,14 @@ func (n *boolNode) MustBool() bool {
 func (n *boolNode) Interface() interface{} {
 	return n.value
 }
+func (n *boolNode) Keys() []string { return nil }
+
+func (n *boolNode) String() string {
+	if n.value {
+		return "true"
+	}
+	return "false"
+}
 
 func (n *boolNode) SetValue(value interface{}) core.Node {
 	n.setError(core.ErrTypeAssertion) // Or a more specific error
@@ -213,6 +231,9 @@ func (n *nullNode) Type() core.NodeType {
 func (n *nullNode) Interface() interface{} {
 	return nil
 }
+func (n *nullNode) Keys() []string { return nil }
+
+func (n *nullNode) String() string { return "null" }
 
 func (n *nullNode) SetValue(value interface{}) core.Node {
 	n.setError(core.ErrTypeAssertion) // Or a more specific error

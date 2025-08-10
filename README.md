@@ -601,9 +601,166 @@ processedUsers := root.Query("/users[@withAvg]")
 
 实现思路:
 
-    Node节点, 记录原始字符串start, end. 例如{  ... } 标记前后
-    Node 节点会有一个属性 获取Next和一个IsParsed是否已经被解析过. 像树设计一样.有Parent 有Prev 有Next. 如果是获取op操作, 先遍历Key. Value也属于一个Node. 也存在IsParsed.
-Query 先从PATH分解操作, 然后根据每个操作递归下去, /books[1:3], 或/books[0] 能分解两个操作指令.
+```markdown
+为实现 XJSON 的目标，我们的架构将遵循以下核心原则：
+懒惰求值 (Lazy Evaluation): JSON 文本在初始 Parse 时仅做有效性验证和根节点构建，不进行完整的树遍历和解析。节点的子元素仅在被首次访问时（如 Get, Index, ForEach）才进行解析。这是实现高性能的关键，尤其是在处理大型 JSON 文件时，可以避免不必要的计算和内存分配。
+零拷贝读取 (Zero-Copy Read): 对于所有读取操作，Node 结构体仅存储指向原始 []byte 数据切片的指针/索引。在进行 Raw(), String(), RawString() 等操作时，可以直接返回原始字节数据的子切片，无需进行任何内存拷贝和分配，从而达到极致的读取性能。
+写时复制 (Copy-on-Write, COW): 读取是零拷贝的，但写入操作（如 Set, Append）则会破坏这种模式。为保证数据一致性，当一个节点首次被修改时，它及其所有父节点路径上的节点都将从 “指针模式” 转换为 “实体化模式 (Materialized Mode)”，即创建实际的 map 或 slice 来存储其内容。这确保了对原始数据的修改是可控且高效的。
+状态传递 (State Propagation): 错误状态和函数上下文（已注册的函数）将在链式调用中沿着节点树向下传递或在创建新节点时被继承。这使得 root.Error() 可以在任意时刻捕获到链中发生的第一个错误，也让函数在子查询中自然可用。
+2. 核心数据结构：node
+Node 接口的底层实现 node 结构体是整个库的基石。
+code
+Go
+// node 是 Node 接口的内部实现
+type node struct {
+    // --- 核心数据指针 ---
+    // root 指向整个JSON文档的根节点，用于访问全局状态（原始数据、函数集、错误）
+    root *node 
+  
+    // --- 数据表示 (互斥) ---
+    // 1. 指针模式 (Lazy & Zero-Copy)
+    // start 和 end 定义了此节点在 root.raw 中的字节范围
+    start int
+    end   int
+
+    // 2. 实体化模式 (Copy-on-Write for mutations)
+    // 当节点被修改后，它将持有实际的Go类型数据
+    materializedValue interface{}
+    isDirty           bool // 标记是否已被修改
+
+    // --- 元数据 ---
+    // 节点类型（Object, Array, String, etc.），在首次访问时确定
+    nodeType NodeType
+  
+    // 指向父节点的指针，是实现 '../' 的关键
+    parent   *node 
+}
+
+// 根节点独有的状态
+type rootState struct {
+    // 原始JSON字节数据
+    raw []byte
+
+    // 全局错误状态，用于链式错误处理
+    // 使用 *error 是为了方便在链中共享和修改同一个错误实例
+    err *error
+
+    // 全局函数注册表
+    funcs *map[string]UnaryPathFunc
+
+    // 查询路径解析器的缓存，避免重复解析相同的路径字符串
+    pathCache *sync.Map // map[string][]queryOperation
+}
+设计说明:
+分离 root 状态：将 raw, err, funcs 等全局状态从每个 node 中分离出来，仅由根节点持有。所有子节点通过 root 指针回溯访问，极大地减少了内存占用，并简化了状态管理。
+双模式数据表示:
+指针模式 (start, end): 默认模式。轻量级，高效。
+实体化模式 (materializedValue): 当 Set() 或 Append() 被调用时触发。节点转换为此模式，start/end 失效。
+parent 指针: 这是实现 ../ 路径导航的核心。每个子节点在创建时都会被赋予其父节点的引用。
+3. 解析策略：懒惰与分层
+xjson.Parse(data) 的工作流程:
+验证 data 是否是有效的 JSON。可以使用一个快速的扫描器来检查括号匹配等基本规则。如果无效，立即返回 nil, err。
+创建一个 root 节点。
+初始化 root.rootState：
+raw: 存储传入的 data ([]byte)。
+err: 初始化为 nil。
+funcs: 创建一个新的 map。
+pathCache: 创建一个新的 sync.Map。
+设置 root.start = 0, root.end = len(data)。
+root.nodeType 会根据第一个非空白字符（{ 或 [）被初步确定为 Object 或 Array。
+返回 root 节点。此刻，除了根节点，没有任何子节点被解析或创建。
+内部解析触发器 ensureParsed():
+当对一个 Object 或 Array 类型的节点调用 Get(), Index(), Len(), ForEach() 等需要访问其内部结构的方法时，会触发一个内部的 ensureParsed() 方法：
+检查该节点是否已经解析过 (materializedValue != nil 或已有缓存的子节点列表)。如果是，直接返回。
+如果不是，则启动一个 局部扫描器 (Local Scanner)，该扫描器只工作在 root.raw[node.start:node.end] 这个字节范围内。
+扫描器逐层解析：
+对于 Object，它会识别出顶层的 "key": value 对。对于每个 value，它会创建一个新的 childNode，设置其 start 和 end 指向 value 在原始 raw 数据中的位置，并设置 childNode.parent = currentNode。它 不会 递归解析 value 的内部。
+对于 Array，它会识别出顶层的元素。同样，为每个元素创建 childNode。
+解析出的子节点列表或键值对被缓存（例如存储在 materializedValue 中，即使它还没有被 "dirty"）。
+这个机制确保了解析工作只在需要时、且只在必要的最小范围内发生。
+4. 查询引擎：编译与执行
+Query(path) 是库的核心功能。其实现分为两个阶段：编译和执行。
+阶段一：路径编译 (Path Compilation)
+缓存检查: 首先检查 root.pathCache 中是否已存在该 path 的编译结果。如果存在，直接使用。
+词法分析 (Tokenization): 如果缓存未命中，则对 path 字符串进行词法分析，将其分解为一系列的 Token。例如，store/books[@cheap][0] 会被分解为:
+TOKEN_IDENT(store), TOKEN_SEP(/), TOKEN_IDENT(books), TOKEN_LBRACKET([), TOKEN_AT(@), TOKEN_IDENT(cheap), TOKEN_RBRACKET(]), TOKEN_LBRACKET([), TOKEN_NUMBER(0), TOKEN_RBRACKET(])
+语法分析 (Parsing): 将 Token 流解析成一个 []queryOperation 切片（操作指令序列）。
+code
+Go
+type queryOpType int
+const (
+    OpKey        queryOpType = iota // key
+    OpIndex                         // [i]
+    OpSlice                         // [i:j]
+    OpFuncCall                      // [@name]
+    OpWildcard                      // *
+    OpRecursive                     // //key
+    OpParent                        // ../
+)
+
+type queryOperation struct {
+    Type  queryOpType
+    Value interface{} // "key" string, int index, [2]int slice, "funcName" string
+}
+store/books[@cheap][0] 会被编译成:
+[{OpKey, "store"}, {OpKey, "books"}, {OpFuncCall, "cheap"}, {OpIndex, 0}]
+缓存结果: 将编译好的 []queryOperation 存入 root.pathCache。
+阶段二：路径执行 (Path Execution)
+Query 方法获取编译后的操作序列。
+从当前节点 (currentNode := self) 开始，循环遍历操作序列。
+使用一个 switch 语句根据 op.Type 执行相应的操作，并将结果赋给 currentNode 以供下一次迭代使用。
+code
+Go
+func (n *node) executeQuery(ops []queryOperation) Node {
+    current := Node(n)
+    for _, op := range ops {
+        if current.Error() != nil {
+            return current // 短路：如果已经出错，则停止执行
+        }
+        switch op.Type {
+        case OpKey:
+            current = current.Get(op.Value.(string))
+        case OpIndex:
+            current = current.Index(op.Value.(int))
+        case OpRecursive:
+            // 执行一个独立的深度优先或广度优先搜索
+            current = recursiveSearch(current, op.Value.(string))
+        case OpParent:
+            if current.(*node).parent != nil {
+                current = current.(*node).parent
+            } else {
+                current = newInvalidNode(current.(*node).root, "cannot navigate above root")
+            }
+        case OpFuncCall:
+            current = current.CallFunc(op.Value.(string))
+        // ... 其他操作 ...
+        }
+    }
+    return current
+}
+recursiveSearch 会返回一个新创建的、包含所有匹配结果的 Array 类型节点。
+5. 可变性与写时复制 (COW)
+这是实现 Set 和 Append 的关键，也是最复杂的部分。
+Set(key, value) 的流程:
+调用 materialize(recursive bool) 方法。此方法是 COW 的核心。
+materialize(false):
+检查当前节点是否为 isDirty。如果是，直接操作。
+如果不是，将 isDirty 设为 true。
+调用 ensureParsed() 来获取所有子节点的指针。
+创建一个新的 map[string]Node (对于 Object) 或 []Node (对于 Array)。
+将所有解析出的子节点填入这个新的 map 或 slice。
+将这个 map/slice 存入 materializedValue。
+关键：调用 parent.materialize(true) 将修改状态向上传播。
+materialize(true) (递归调用):
+此方法仅用于将父节点标记为 dirty，并确保其也转为实体化模式，因为它包含了一个被修改的子节点。这个过程会一直持续到根节点。
+在实体化后的 map 中设置键值。value 会被转换成一个新的 node。
+返回当前节点，以支持链式调用。
+当最后调用 root.String() 时，它会检查 isDirty 标志。如果是 true，它必须调用一个 marshal() 函数，根据 materializedValue 重新序列化整个 JSON 树，而不是返回原始的 raw 切片。
+6. 错误处理与函数系统
+错误处理: root.err 是一个指向 error 的指针。当任何操作失败时（如路径未找到、类型转换失败），该操作会首先检查 *root.err 是否已存在。如果不存在，则将新错误赋给它。所有后续操作都会检查 *root.err != nil，如果是，则立即返回当前节点而不执行任何操作。这实现了 “首错模式 (First-Error Wins)” 和链式调用的健壮性。
+函数系统: root.funcs 存储了函数。当 RegisterFunc 被调用时，函数被添加到 root.funcs 这个 map 中。CallFunc 或路径中的 [@func] 会在 root.funcs 中查找函数名并执行。因为所有节点共享同一个 root 指针，所以任何节点上注册的函数对整个文档树都是可见的。如果需要节点级别的函数作用域，则 node 结构体需要自己的 funcs map，并在创建子节点时进行继承和覆盖。目前的全局设计更简单、更符合预期。
+
+```
 
 ## 📄 许可证
 

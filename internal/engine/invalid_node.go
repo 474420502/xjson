@@ -57,6 +57,7 @@ func (n *invalidNode) Interface() interface{}                   { return nil }
 func (n *invalidNode) RawFloat() (float64, bool)                { return 0, false }
 func (n *invalidNode) RawString() (string, bool)                { return "", false }
 func (n *invalidNode) Strings() []string                        { return nil }
+func (n *invalidNode) Keys() []string                           { return nil }
 func (n *invalidNode) Contains(value string) bool               { return false }
 func (n *invalidNode) AsMap() map[string]core.Node              { return nil }
 func (n *invalidNode) MustAsMap() map[string]core.Node          { return nil }
