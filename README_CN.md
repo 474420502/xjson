@@ -10,6 +10,8 @@
 * **🌀** **健壮的错误处理**：通过 **node.Error()** **在链式调用末尾统一检查错误。**
 * **⚡️** **性能导向**：通过高效的链式操作和原生值访问实现零拷贝级别的性能。
 * **🌟** **通配符查询**：支持 **`*`** 通配符和复杂的路径表达式。
+* **🔍** **递归下降**：通过 **//key** **语法在整个JSON树中深度搜索匹配的键。**
+* **⬆️** **上级路径**：通过 **../** **语法访问父级节点，实现灵活的相对路径导航。**
 
 ## 🚀 快速开始
 
@@ -26,21 +28,9 @@ func main() {
 		"store": {
 			"books": [
 				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]},
-				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]},
-				{"title": "Go Programming", "price": 35.50, "tags": ["programming", "go"]},
-				{"title": "Design Patterns", "price": 45.00, "tags": ["programming", "design"]}
-			],
-			"electronics": {
-				"laptops": [
-					{"name": "MacBook Pro", "price": 1999.99, "in_stock": true},
-					{"name": "ThinkPad X1", "price": 1599.99, "in_stock": false}
-				]
-			}
-		},
-		"authors": [
-			{"name": "Herman Melville", "nationality": "American"},
-			{"name": "Robert C. Martin", "nationality": "American"}
-		]
+				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]}
+			]
+		}
 	}`
 
 	// 1. 解析并检查初始错误
@@ -59,74 +49,24 @@ func main() {
 		return n.Filter(func(child xjson.Node) bool {
 			return child.Get("tags").Contains("adventure")
 		})
-	}).RegisterFunc("expensive", func(n xjson.Node) xjson.Node {
-		return n.Filter(func(child xjson.Node) bool {
-			price, _ := child.Get("price").RawFloat()
-			return price > 30
-		})
 	})
 
-	// 3. 基础路径查询示例
-	fmt.Println("=== 基础路径查询 ===")
-
-	// 键访问
-	booksNode := root.Query("/store/books")
-	fmt.Printf("Books array type: %v\n", booksNode.Type())
-
-	// 数组索引
-	firstBook := root.Query("/store/books[0]/title").String()
-	fmt.Printf("First book title: %s\n", firstBook)
-
-	// 数组切片
-	middleBooks := root.Query("/store/books[1:3]/title").Strings()
-	fmt.Printf("Middle books (1:3): %v\n", middleBooks)
-
-	// 获取最后两本书
-	lastTwoBooks := root.Query("/store/books[-2:]/title").Strings()
-	fmt.Printf("Last two books: %v\n", lastTwoBooks)
-
-	// 4. 函数调用示例
-	fmt.Println("\n=== 函数调用示例 ===")
-
-	// 使用路径函数查询
+	// 3. Query using path functions
 	cheapTitles := root.Query("/store/books[@cheap]/title").Strings()
 	if err := root.Error(); err != nil {
-		fmt.Println("查询失败:", err)
+		fmt.Println("Query failed:", err)
 		return
 	}
 	fmt.Println("Cheap books:", cheapTitles) // ["Moby Dick"]
 
-	// 链式函数调用
-	expensiveProgrammingBooks := root.Query("/store/books[@expensive][@tagged='programming']/title").Strings()
-	fmt.Println("Expensive programming books:", expensiveProgrammingBooks)
-
-	// 5. 通配符和高级语法
-	fmt.Println("\n=== 通配符和高级语法 ===")
-
-	// 通配符查询
-	allStoreItems := root.Query("/store/*")
-	fmt.Printf("All store items count: %d\n", allStoreItems.Len())
-
-	// 递归下降查询
-	allAuthors := root.Query("//name").Strings()
-	fmt.Println("All authors in document:", allAuthors)
-
-	// 特殊字符键名处理（假设有这样的数据）
-	specialKeyData := `{"data/user-profile": {"name": "John", "age": 30}}`
-	specialRoot, _ := xjson.Parse(specialKeyData)
-	userName := specialRoot.Query("/['data/user-profile']/name").String()
-	fmt.Printf("User name from special key: %s\n", userName)
-
-	// 6. 修改数据
-	fmt.Println("\n=== 数据修改 ===")
+	// 4. Modify data
 	root.Query("/store/books[@tagged]").Set("price", 9.99)
 	if err := root.Error(); err != nil {
-		fmt.Println("修改失败:", err)
+		fmt.Println("Modification failed:", err)
 		return
 	}
 
-	// 7. 输出最终结果
-	fmt.Println("\n=== 最终JSON ===")
+	// 5. Output result
 	fmt.Println(root.String())
 }
 ```
@@ -319,7 +259,108 @@ XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂�
 * **描述**: 与 `/` 只在直接子节点中查找不同，`//` 会遍历整个子树，将所有匹配 `key` 的节点收集到一个新的数组节点中。
 * **示例**: `//author` 将从根节点开始，查找所有层级下的 `author` 字段。
 
+**更多使用示例：**
+
+```go
+// 查找所有价格字段
+allPrices := root.Query("//price").Strings()
+
+// 查找所有包含标签的书籍
+taggedBooks := root.Query("//books").Filter(func(n xjson.Node) bool {
+    return n.Get("tags").Len() > 0
+})
+
+// 查找所有库存为 true 的商品
+inStockItems := root.Query("//in_stock").Filter(func(n xjson.Node) bool {
+    return n.Bool() == true
+})
+
+// 结合函数使用，查找所有低价商品
+cheapItems := root.Query("//price[@cheap]")
+```
+
+**最佳实践：**
+
+1. **限制搜索范围**：先使用精确路径定位到大致区域，再使用递归下降
+
+   ```go
+   // 推荐：先定位到 store，再搜索
+   storePrices := root.Query("/store//price")
+
+   // 避免全局搜索
+   allPrices := root.Query("//price")
+   ```
+2. **结合过滤函数**：使用 `Filter()` 方法进一步筛选结果
+
+   ```go
+   // 找到所有价格并筛选出低价的
+   cheapPrices := root.Query("//price").Filter(func(n xjson.Node) bool {
+       price, _ := n.RawFloat()
+       return price < 20
+   })
+   ```
+3. **谨慎使用**：在已知结构的情况下优先使用精确路径
+
 > **性能警告**：递归下降 `//` 是一个非常强大但开销极大的操作。因为它需要遍历一个节点下的整个子树，当处理大型或深层嵌套的 JSON 数据时，可能会成为性能瓶颈。建议仅在数据结构不确定或确实需要全局搜索时使用，在性能敏感的场景下应优先使用精确路径。
+
+**5.4. 上级路径查找**
+
+双点 `../` 语法用于访问当前节点的父级节点，实现相对路径导航。
+
+* **语法**: `../key` 或 `../`
+* **描述**: 允许从当前节点向上导航到父级节点，然后继续向下查询。这在处理复杂嵌套结构时特别有用，可以在不知道完整路径的情况下进行灵活的数据访问。
+* **示例**: `/store/books[0]/../electronics` 从第一本书向上导航到 `store` 节点，然后访问 `electronics`。
+
+**使用示例：**
+
+```go
+// 从书籍节点导航到父级 store，然后获取 electronics
+electronicsFromBook := root.Query("/store/books[0]/../electronics/laptops").Strings()
+
+// 获取所有书籍的父级分类名称
+bookCategories := root.Query("/store/books[0]/../").Keys()
+
+// 在数组元素中引用兄弟字段
+firstBookTitle := root.Query("/store/books[0]/title").String()
+firstBookPrice := root.Query("/store/books[0]/../books[0]/price").Float()
+
+// 多级上级导航
+rootFromDeep := root.Query("/store/electronics/laptops[0]/../../authors").Strings()
+```
+
+**实际应用场景：**
+
+1. **关联数据查询**：在嵌套结构中查找相关数据
+
+   ```go
+   // 找到所有有库存商品的分类
+   inStockCategories := root.Query("/store/*/laptops").Filter(func(n xjson.Node) bool {
+       return n.Get("in_stock").Bool() == true
+   }).Query("../..").Keys()
+   ```
+2. **数据验证**：检查字段间的关系
+
+   ```go
+   // 验证价格是否在合理范围内
+   validatePrice := root.Query("/store/books").Filter(func(n xjson.Node) bool {
+       price := n.Get("price").Float()
+       category := n.Query("../").String() // 获取父级信息
+       // 根据分类验证价格
+       return isValidPriceForCategory(price, category)
+   })
+   ```
+3. **动态路径构建**：在不确定具体结构时进行导航
+
+   ```go
+   // 从任意节点向上查找特定字段
+   findStoreInfo := root.Query("//price/../..") // 从价格找到对应的 store
+   ```
+
+**限制和注意事项：**
+
+1. **根节点限制**：在根节点使用 `../` 会返回无效节点
+2. **性能考虑**：过多的上级导航可能影响代码可读性，建议在已知结构时使用精确路径
+3. **链式使用**：可以连续使用多个 `../` 进行多级向上导航
 
 #### **语法速查表**
 
@@ -332,6 +373,7 @@ XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂�
 | **函数**     | `[@<name>]`   | 调用已注册的路径函数。                          | `[@cheap]`, `[@inStock]` |
 | **高级**     | `*`           | 匹配对象或数组的所有直接子元素。                | `/store/*`                 |
 |                    | `//key`       | 递归搜索所有后代节点中的 `key` (性能开销大)。 | `//author`                 |
+|                    | `../key`      | 访问父级节点，然后继续向下查询。                | `/books[0]/../electronics` |
 | **特殊字符** | `['<key>']`   | 界定包含特殊字符的键名。                        | `['user.profile']`         |
 |                    | `["<key>"]`   | 界定包含单引号的键名。                          | `["a'key"]`                |
 
@@ -554,9 +596,13 @@ processedUsers := root.Query("/users[@withAvg]")
 
 **兼容性说明：**
 
-- 旧的 `Func()` 方法仍然可用，但已被标记为弃用
 - 所有现有的查询语法继续有效
 - 新功能完全向后兼容
+
+实现思路:
+
+    Node节点, 记录原始字符串start, end. 例如{  ... } 标记前后
+    Node 节点会有一个属性 获取Next和一个IsParsed是否已经被解析过. 像树设计一样.有Parent 有Prev 有Next. 如果是获取op操作, 先遍历Key. Value也属于一个Node. 也存在IsParsed.
 
 ## 📄 许可证
 

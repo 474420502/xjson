@@ -1,18 +1,23 @@
 package engine
 
 import (
-	"errors"
+	"fmt"
+
+	"github.com/474420502/xjson/internal/core"
 )
 
-// Note: The local Node interface has been removed.
-// All node implementations should now directly use the `core.Node` interface
-// from `github.com/474420502/xjson/internal/core`.
-//
-// The NodeType enum has also been centralized in the core package.
+// Parse is the entry point for the engine package. It creates a new parser
+// and starts parsing the raw data.
+func Parse(data []byte) (core.Node, error) {
+	p := newParser(data)
+	return p.Parse()
+}
 
-var (
-	ErrInvalidNode      = errors.New("invalid node")
-	ErrTypeAssertion    = errors.New("type assertion failed")
-	ErrIndexOutOfBounds = errors.New("index out of bounds")
-	ErrNotFound         = errors.New("not found")
-)
+// NewNodeFromInterface creates a new node from a Go interface.
+// This is useful for creating nodes programmatically in tests or applications.
+func NewNodeFromInterface(v interface{}) (core.Node, error) {
+	// TODO: This function will need to recursively build the node tree
+	// based on the type of `v` (map, slice, string, etc.).
+	// For now, return an invalid node.
+	return newInvalidNode(fmt.Errorf("NewNodeFromInterface is not implemented")), nil
+}

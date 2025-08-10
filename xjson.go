@@ -1,58 +1,56 @@
 package xjson
 
 import (
+	"fmt"
+
 	"github.com/474420502/xjson/internal/core"
 	"github.com/474420502/xjson/internal/engine"
 )
 
-// 公共类型别名
-// Public type aliases
-type Node = core.Node
+// NodeType is an alias for the core NodeType.
 type NodeType = core.NodeType
 
-// 面向公共 API 的函数类型别名
-// Functional type aliases for public API
-type PathFunc = core.PathFunc
-type UnaryPathFunc = core.UnaryPathFunc
-type PredicateFunc = core.PredicateFunc
-type TransformFunc = core.TransformFunc
-
-// 定义节点类型的常量
-// Define constants for node types
 const (
-	ObjectNode  = core.ObjectNode
-	ArrayNode   = core.ArrayNode
-	StringNode  = core.StringNode
-	NumberNode  = core.NumberNode
-	BoolNode    = core.BoolNode
-	NullNode    = core.NullNode
-	InvalidNode = core.InvalidNode
+	Invalid = core.Invalid
+	Object  = core.Object
+	Array   = core.Array
+	String  = core.String
+	Number  = core.Number
+	Bool    = core.Bool
+	Null    = core.Null
 )
 
-// Parse 接受一个 JSON 字符串并返回解析结构的根节点。
-// 返回的 Node 可用于导航和操作 JSON 数据。
-// Parse takes a JSON string and returns the root node of the parsed structure.
-// The returned Node can be used to navigate and manipulate the JSON data.
-func Parse(data string) (Node, error) {
-	return engine.ParseJSONToNode(data)
-}
+// PathFunc is an alias for the core PathFunc.
+type PathFunc = core.PathFunc
 
-// ParseBytes 是围绕 Parse 为字节切片提供的便捷包装器。
-// ParseBytes is a convenience wrapper around Parse for byte slices.
-func ParseBytes(data []byte) (Node, error) {
-	return Parse(string(data))
-}
+// UnaryPathFunc is an alias for the core UnaryPathFunc.
+type UnaryPathFunc = core.UnaryPathFunc
 
-// NewNodeFromInterface 从 Go 的 interface{} 创建一个新 Node。
-// 这对于以编程方式构建节点非常有用。
-// NewNodeFromInterface creates a new Node from a Go interface{}.
-// This is useful for building nodes programmatically.
-func NewNodeFromInterface(value interface{}) (Node, error) {
-	return engine.NewNodeFromInterface(value, "", nil)
-}
+// PredicateFunc is an alias for the core PredicateFunc.
+type PredicateFunc = core.PredicateFunc
 
-// NewParser 是一个用于创建解析器的辅助函数，主要用于测试目的。
-// NewParser is a helper for creating a parser, used for testing purposes.
-func NewParser(data string) (Node, error) {
-	return engine.ParseJSONToNode(data)
+// TransformFunc is an alias for the core TransformFunc.
+type TransformFunc = core.TransformFunc
+
+// Node is an alias for the core Node.
+type Node = core.Node
+
+// Parse parses a raw JSON string or bytes and returns the root Node.
+// This is the main entry point for using the XJSON library.
+func Parse(data interface{}) (Node, error) {
+	var raw []byte
+	switch v := data.(type) {
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return nil, fmt.Errorf("unsupported data type: %T", data)
+	}
+
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty data")
+	}
+
+	return engine.Parse(raw)
 }
