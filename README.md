@@ -1,19 +1,25 @@
-# XJSON - 统一节点模型JSON处理器 (v0.0.3 修订版)
+# XJSON - Unified Node Model JSON Processor (v0.1.0)
 
-**XJSON** **是一个强大的 Go JSON 处理库，采用完全统一的** **Node** **模型，支持路径函数、流式操作和灵活的查询语法。**
+**XJSON** **is a powerful Go JSON processing library that uses a fully unified** **Node** **model, supporting path functions, streaming operations, and flexible query syntax.**
 
-## ✨ 核心特性
+## ✨ Core Features
 
-* **🎯** **单一节点类型**：所有操作都基于 **xjson.Node**，无 **Result** **类型。**
-* **🧩** **路径函数**：通过 **/path[@func]/subpath** **语法将自定义逻辑注入查询。**
-* **🔗** **链式操作**：支持流畅的函数注册、查询和数据操作。
-* **🌀** **健壮的错误处理**：通过 **node.Error()** **在链式调用末尾统一检查错误。**
-* **⚡️** **性能导向**：通过高效的链式操作和原生值访问实现零拷贝级别的性能。
-* **🌟** **通配符查询**：支持 **`*`** 通配符和复杂的路径表达式。
-* **🔍** **递归下降**：通过 **//key** **语法在整个JSON树中深度搜索匹配的键。**
-* **⬆️** **上级路径**：通过 **../** **语法访问父级节点，实现灵活的相对路径导航。**
+* **🎯** **Single Node Type**: All operations are based on **xjson.Node**, with no **Result** **type.**
+* **🧩** **Path Functions**: Inject custom logic into queries using **/path[@func]/subpath** **syntax.**
+* **🔗** **Chained Operations**: Support fluent function registration, querying, and data operations.
+* **🌀** **Robust Error Handling**: Check for errors at the end of chained calls with **node.Error()**.
+* **⚡️** **Performance-Oriented**: Achieve zero-copy level performance through efficient chained operations and native value access.
+* **🌟** **Wildcard Queries**: Support **`*`** wildcards and complex path expressions.
+* **🔍** **Recursive Descent**: Search for matching keys throughout the JSON tree using **//key** **syntax.**
+* **⬆️** **Parent Path Navigation**: Access parent nodes flexibly with **../** **syntax for relative path navigation.**
 
-## 🚀 快速开始
+## 🚀 Quick Start
+
+XJSON provides both simple and advanced usage patterns. Here are examples for both levels:
+
+### Basic Usage
+
+XJSON's main purpose is to make JSON path querying easy and intuitive. Here are various examples of path syntax usage:
 
 ```go
 package main
@@ -24,91 +30,413 @@ import (
 )
 
 func main() {
+	// Complex JSON data to demonstrate path querying
 	data := `{
 		"store": {
 			"books": [
-				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]},
-				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]}
-			]
-		}
+				{
+					"title": "Moby Dick",
+					"price": 8.99,
+					"author": {
+						"first_name": "Herman",
+						"last_name": "Melville"
+					},
+					"tags": ["classic", "adventure"],
+					"isbn-10": "0123456789"
+				},
+				{
+					"title": "Clean Code",
+					"price": 29.99,
+					"author": {
+						"first_name": "Robert",
+						"last_name": "Martin"
+					},
+					"tags": ["programming", "coding"]
+				}
+			],
+			"electronics": {
+				"computers": [
+					{
+						"name": "Laptop",
+						"price": 999.99,
+						"specifications": {
+							"cpu": "Intel i7",
+							"memory": "16GB"
+						},
+						"in_stock": true
+					}
+				]
+			},
+			"special.keys": {
+				"user.profile": {
+					"name": "John Doe",
+					"settings": {
+						"theme": "dark",
+						"notifications": true
+					}
+				}
+			}
+		},
+		"ratings": [
+			{"book": "Moby Dick", "score": 4.5},
+			{"book": "Clean Code", "score": 4.8}
+		]
 	}`
 
-	// 1. 解析并检查初始错误
+	// Parse JSON
 	root, err := xjson.Parse(data)
 	if err != nil {
 		panic(err)
 	}
 
-    // 2. 注册函数
+	// 1. Basic key access
+	store := root.Query("/store")
+	fmt.Println("Store exists:", store.IsValid())
+
+	// 2. Nested key access
+	bookTitle := root.Query("/store/books[0]/title").String()
+	fmt.Println("First book title:", bookTitle)
+
+	// 3. Array indexing
+	firstAuthor := root.Query("/store/books[0]/author/first_name").String()
+	fmt.Println("First author's first name:", firstAuthor)
+
+	// 4. Array slicing
+	bookTitles := root.Query("/store/books[:]/title").Strings()
+	fmt.Println("All book titles:", bookTitles)
+
+	// 5. Accessing keys with special characters using quoted syntax
+	userName := root.Query("/store/['special.keys']/['user.profile']/name").String()
+	fmt.Println("User name with special keys:", userName)
+
+	// 6. Accessing keys with dots in them
+	userTheme := root.Query(`/store/['special.keys']/['user.profile']/settings/theme`).String()
+	fmt.Println("User theme:", userTheme)
+
+	// 7. Wildcard usage
+	allFirstNames := root.Query("/store/books/*/author/first_name").Strings()
+	fmt.Println("All author first names:", allFirstNames)
+
+	// 8. Accessing array elements by condition (first element)
+	firstRating := root.Query("/ratings[0]/score").Float()
+	fmt.Printf("First rating score: %.1f\n", firstRating)
+
+	fmt.Println("\n--- More Path Examples ---")
+
+	// 9. Complex nested access
+	cpuSpec := root.Query("/store/electronics/computers[0]/specifications/cpu").String()
+	fmt.Println("CPU specification:", cpuSpec)
+
+	// 10. Accessing boolean values
+	inStock := root.Query("/store/electronics/computers[0]/in_stock").Bool()
+	fmt.Println("Computer in stock:", inStock)
+
+	// 11. Accessing array elements
+	firstTag := root.Query("/store/books[0]/tags[0]").String()
+	fmt.Println("First tag of first book:", firstTag)
+
+	// 12. Accessing numeric values
+	bookPrice := root.Query("/store/books[1]/price").Float()
+	fmt.Printf("Second book price: $%.2f\n", bookPrice)
+}
+```
+
+For different types of path operations:
+
+```go
+func pathExamples() {
+	data := `{
+		"users": [
+			{
+				"id": 1,
+				"name": "Alice",
+				"profile": {
+					"age": 25,
+					"active": true,
+					"tags": ["developer", "go", "json"]
+				},
+				"scores": [95, 87, 92]
+			},
+			{
+				"id": 2,
+				"name": "Bob",
+				"profile": {
+					"age": 30,
+					"active": false,
+					"tags": ["manager", "planning"]
+				},
+				"scores": [88, 91, 79]
+			}
+		],
+		"metadata": {
+			"version": "1.0",
+			"created": "2023-01-01"
+		}
+	}`
+
+	root, _ := xjson.Parse(data)
+
+	// Array index access
+	firstUserId := root.Query("/users[0]/id").Int()
+	fmt.Println("First user ID:", firstUserId)
+
+	// Array slice access
+	userNames := root.Query("/users[:]/name").Strings()
+	fmt.Println("User names:", userNames)
+
+	// Nested object access
+	firstUserAge := root.Query("/users[0]/profile/age").Int()
+	fmt.Println("First user age:", firstUserAge)
+
+	// Array of objects property access
+	allTags := root.Query("/users[*]/profile/tags").Strings()
+	fmt.Println("All user tags:", allTags)
+
+	// Nested array access
+	firstUserFirstScore := root.Query("/users[0]/scores[0]").Int()
+	fmt.Println("First user's first score:", firstUserFirstScore)
+
+	// Boolean value access
+	firstUserActive := root.Query("/users[0]/profile/active").Bool()
+	fmt.Println("First user active:", firstUserActive)
+
+	// Accessing metadata
+	version := root.Query("/metadata/version").String()
+	fmt.Println("Version:", version)
+}
+```
+
+For working with special key names:
+
+```go
+func specialKeysExample() {
+	data := `{
+		"user-data": {
+			"user.profile": {
+				"first.name": "John",
+				"last.name": "Doe"
+			},
+			"user.settings": {
+				"ui.theme": "dark",
+				"email.notifications": true
+			}
+		},
+		"api/v1/users": [
+			{
+				"id": 1,
+				"profile.data": {
+					"name": "Alice",
+					"contact-info": {
+						"email.address": "alice@example.com"
+					}
+				}
+			}
+		]
+	}`
+
+	root, _ := xjson.Parse(data)
+
+	// Accessing keys with dots
+	firstName := root.Query(`/['user-data']/['user.profile']/['first.name']`).String()
+	fmt.Println("First name:", firstName)
+
+	// Accessing keys with slashes
+	apiPath := root.Query(`/['api/v1/users']`).Len()
+	fmt.Println("API users count:", apiPath)
+
+	// Mixed regular and special keys
+	userName := root.Query(`/['api/v1/users'][0]/['profile.data']/name`).String()
+	fmt.Println("User name:", userName)
+
+	// Deep access with special keys
+	email := root.Query(`/['api/v1/users'][0]/['profile.data']/['contact-info']/['email.address']`).String()
+	fmt.Println("Email:", email)
+
+	// Accessing nested special keys
+	theme := root.Query(`/['user-data']/['user.settings']/['ui.theme']`).String()
+	fmt.Println("Theme:", theme)
+}
+```
+
+For array operations:
+
+```go
+func arrayExample() {
+	data := `{
+		"users": [
+			{"name": "Alice", "age": 25},
+			{"name": "Bob", "age": 30},
+			{"name": "Charlie", "age": 35}
+		]
+	}`
+
+	root, _ := xjson.Parse(data)
+
+	// Get array length
+	count := root.Get("users").Len()
+	fmt.Printf("Total users: %d\n", count)
+
+	// Access by index
+	firstUser := root.Get("users").Index(0).Get("name").String()
+	fmt.Printf("First user: %s\n", firstUser)
+
+	// Iterate through array
+	root.Get("users").ForEach(func(index interface{}, user xjson.Node) {
+		name := user.Get("name").String()
+		age := user.Get("age").Int()
+		fmt.Printf("User %d: %s (age %d)\n", index, name, age)
+	})
+}
+```
+
+### Advanced Usage
+
+For complex data processing with functions:
+
+```go
+func advancedExample() {
+	data := `{
+		"store": {
+			"books": [
+				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]},
+				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]},
+				{"title": "Go in Action", "price": 19.99, "tags": ["programming", "golang"]}
+			],
+			"electronics": [
+				{"name": "Laptop", "price": 999.99, "in_stock": true},
+				{"name": "Mouse", "price": 29.99, "in_stock": false}
+			]
+		}
+	}`
+
+	root, err := xjson.Parse(data)
+	if err != nil {
+		panic(err)
+	}
+
+	// Register custom functions
 	root.RegisterFunc("cheap", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			price, _ := child.Get("price").RawFloat()
 			return price < 20
 		})
-	}).RegisterFunc("tagged", func(n xjson.Node) xjson.Node {
+	}).RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
-			return child.Get("tags").Contains("adventure")
+			return child.Get("in_stock").Bool()
+		})
+	}).RegisterFunc("programming", func(n xjson.Node) xjson.Node {
+		return n.Filter(func(child xjson.Node) bool {
+			return child.Get("tags").Contains("programming")
 		})
 	})
 
-	// 3. Query using path functions
-	cheapTitles := root.Query("/store/books[@cheap]/title").Strings()
-	if err := root.Error(); err != nil {
-		fmt.Println("Query failed:", err)
-		return
-	}
-	fmt.Println("Cheap books:", cheapTitles) // ["Moby Dick"]
+	// Complex queries using path functions
+	cheapBooks := root.Query("/store/books[@cheap]/title").Strings()
+	fmt.Println("Cheap books:", cheapBooks)
 
-	// 4. Modify data
-	root.Query("/store/books[@tagged]").Set("price", 9.99)
-	if err := root.Error(); err != nil {
-		fmt.Println("Modification failed:", err)
-		return
-	}
+	// Find all in-stock electronics
+	inStockItems := root.Query("/store/electronics[@inStock]/name").Strings()
+	fmt.Println("In-stock items:", inStockItems)
 
-	// 5. Output result
-	fmt.Println(root.String())
+	// Find programming books
+	progBooks := root.Query("/store/books[@programming]/title").Strings()
+	fmt.Println("Programming books:", progBooks)
+
+	// Use recursive descent to find all prices
+	allPrices := root.Query("//price").Map(func(n xjson.Node) interface{} {
+		price, _ := n.RawFloat()
+		return price
+	})
+
+	// Calculate average price
+	var sum float64
+	var count int
+	allPrices.ForEach(func(_ interface{}, priceNode xjson.Node) {
+		if price, ok := priceNode.Interface().(float64); ok {
+			sum += price
+			count++
+		}
+	})
+	avgPrice := sum / float64(count)
+	fmt.Printf("Average price: %.2f\n", avgPrice)
+
+	// Use parent navigation
+	firstBookTitle := root.Query("/store/books[0]/../books[0]/title").String()
+	fmt.Println("First book (using parent navigation):", firstBookTitle)
 }
 ```
 
-## 💡 核心设计
+For data modification:
 
-### 1. 统一节点模型
+```go
+func modificationExample() {
+	data := `{
+		"users": [
+			{"id": 1, "name": "John", "active": true},
+			{"id": 2, "name": "Jane", "active": false}
+		]
+	}`
 
-**所有 JSON 元素（对象、数组、字符串、数字等），包括查询结果集，都由** **Node** **接口表示。**
+	root, _ := xjson.Parse(data)
+
+	// Modify existing data
+	root.Query("/users[0]").Set("name", "John Doe")
+	
+	// Add new data
+	newUser := map[string]interface{}{
+		"id": 3,
+		"name": "Bob",
+		"active": true,
+	}
+	root.Query("/users").Append(newUser)
+
+	// Use SetValue to replace entire node value
+	root.Query("/users[1]/active").SetValue(true)
+
+	fmt.Println("Modified data:", root.String())
+}
+```
+
+## 💡 Core Design
+
+### 1. Unified Node Model
+
+**All JSON elements (objects, arrays, strings, numbers, etc.), including query result sets, are represented by the** **Node** **interface.**
 
 ```go
 type Node interface {
-    // 基础访问
+    // Basic Access
     Type() NodeType
     IsValid() bool
     Error() error
     Path() string
     Raw() string
+    Parent() Node
   
-    // 查询方法
+    // Query Methods
     Query(path string) Node
     Get(key string) Node
     Index(i int) Node
   
-    // 流式操作
+    // Streaming Operations
     Filter(fn PredicateFunc) Node
     Map(fn TransformFunc) Node
     ForEach(fn func(keyOrIndex interface{}, value Node)) 
     Len() int
   
-    // 写操作
+    // Write Operations
     Set(key string, value interface{}) Node
     Append(value interface{}) Node
+    SetValue(value interface{}) Node
   
-    // 函数支持
+    // Function Support
     RegisterFunc(name string, fn UnaryPathFunc) Node
     CallFunc(name string) Node
     RemoveFunc(name string) Node
     Apply(fn PathFunc) Node
-    GetFuncs() *map[string]func(Node) Node
+    GetFuncs() *map[string]UnaryPathFunc
   
-    // 类型转换
+    // Type Conversion
     String() string
     MustString() string
     Float() float64
@@ -123,346 +451,350 @@ type Node interface {
     MustArray() []Node
     Interface() interface{}
   
-    // 原生值访问 (性能优化)
+    // Native Value Access (Performance Optimization)
     RawFloat() (float64, bool)
     RawString() (string, bool)
   
-    // 其他转换方法
+    // Other Conversion Methods
     Strings() []string
+    Keys() []string
     Contains(value string) bool
     AsMap() map[string]Node
     MustAsMap() map[string]Node
 }
 ```
 
-### 2. 函数类型系统
+### 2. Function Type System
 
-**XJSON 提供了多种函数类型以支持不同的操作场景：**
+**XJSON provides multiple function types to support different operation scenarios:**
 
 ```go
-// 路径函数 - 通用函数容器
+// Path Function - Generic function container
 type PathFunc interface{}
 
-// 一元路径函数 - 节点到节点的转换
+// Unary Path Function - Node to node transformation
 type UnaryPathFunc func(node Node) Node
 
-// 谓词函数 - 用于过滤操作
+// Predicate Function - Used for filtering operations
 type PredicateFunc func(node Node) bool
 
-// 转换函数 - 用于映射操作
+// Transform Function - Used for mapping operations
 type TransformFunc func(node Node) interface{}
 ```
 
-### 3. 错误处理
+### 3. Error Handling
 
-**XJSON 采用链式调用友好的错误处理模式：**
+**XJSON uses chain-friendly error handling mode:**
 
 ```go
-// 无需在每一步都检查 err
+// No need to check err at every step
 value := root.Query("/path/that/does/not/exist").Get("key").Int()
 
-// 在最后统一检查
+// Check at the end
 if err := root.Error(); err != nil {
-    fmt.Println("操作链失败:", err)
+    fmt.Println("Operation chain failed:", err)
 }
 ```
 
-### 4. 路径查询语法
+### 4. Path Query Syntax
 
-XJSON 提供了强大而灵活的路径查询语法，支持从简单到复杂的各种数据访问模式。
+XJSON provides a powerful and flexible path query syntax that supports various data access patterns from simple to complex.
 
-#### **基础语法**
+#### **Basic Syntax**
 
-**4.1. 根节点**
+**4.1. Root Node**
 
-路径查询总是以 `/` 开头，表示从根节点开始。
+Path queries always start with `/`, representing the root node.
 
-* **语法**: `/`
-* **描述**: 代表 JSON 数据的根节点。
-* **示例**: `/store` 从根节点获取 `store` 键的值。
+* **Syntax**: `/`
+* **Description**: Represents the root node of the JSON data.
+* **Example**: `/store` gets the `store` key from the root node.
 
-**注意**: `/store/books` 和 `store/books` 这两种写法是等效的。
+**Note**: `/store/books` and `store/books` are equivalent.
 
-**4.2. 键访问**
+**4.2. Key Access**
 
-标准的对象字段访问通过键名直接完成。任何符合 Go 语言标识符习惯的字符串都可以直接作为路径段。
+Standard object field access is done directly by key name. Any string that conforms to Go language identifier conventions can be used directly as a path segment.
 
-* **语法**: `/key1/key2`
-* **示例**: `/store/books`，这段路径会依次获取 `store` 键和 `books` 键。
+* **Syntax**: `/key1/key2`
+* **Example**: `/store/books`, this path will sequentially get the `store` key and `books` key.
 
-**4.3. 数组访问**
+**4.3. Array Access**
 
-通过方括号 `[...]` 访问数组元素，支持单个索引和范围切片。
+Access array elements through square brackets `[...]`, supporting single index and range slicing.
 
-* **索引访问**:
+* **Index Access**:
 
-  * **语法**: `[<index>]`
-  * **描述**: 获取单个数组元素，索引从 0 开始。
-  * **示例**: `/store/books[0]`，获取 `books` 数组的第一个元素。
-* **切片访问**:
+  * **Syntax**: `[<index>]`
+  * **Description**: Get a single array element, index starts from 0.
+  * **Example**: `/store/books[0]`, get the first element of the `books` array.
+* **Slice Access**:
 
-  * **语法**:
-    * `[start:end]`: 获取从 `start` 到 `end-1` 的元素。
-    * `[start:]`: 获取从 `start` 到末尾的元素。
-    * `[:end]`: 获取从开头到 `end-1` 的元素。
-    * `[-N:]`: 获取最后 N 个元素。
-  * **描述**: 获取数组的一个子集，并返回一个包含这些元素的新数组节点。
-  * **示例**: `/store/books[1:3]`，返回一个包含 `books` 数组中第二个和第三个元素的新数组。
+  * **Syntax**:
+    * `[start:end]`: Get elements from `start` to `end-1`.
+    * `[start:]`: Get elements from `start` to the end.
+    * `[:end]`: Get elements from the beginning to `end-1`.
+    * `[-N:]`: Get the last N elements.
+  * **Description**: Get a subset of the array and return a new array node containing these elements.
+  * **Example**: `/store/books[1:3]`, return a new array containing the second and third elements of the `books` array.
 
-**4.4. 函数调用**
+**4.4. Function Calls**
 
-在路径中通过 `[@<funcName>]` 语法调用已注册的函数。函数提供了一种强大的数据处理和过滤机制。
+Call registered functions in the path using the `[@<funcName>]` syntax. Functions provide a powerful mechanism for data processing and filtering.
 
-* **语法**: `[@<函数名>]`
-* **标志符**: `@` 符号明确表示这是一个函数调用。
-* **要求**: 函数必须已通过 `RegisterFunc` 注册到节点上。
-* **示例**: `/store/books[@cheap]/title`，在 `books` 数组上调用 `cheap` 函数，并从结果中提取 `title`。
+* **Syntax**: `[@<Function Name>]`
+* **Identifier**: The `@` symbol clearly indicates this is a function call.
+* **Requirement**: The function must be registered to the node via `RegisterFunc`.
+* **Example**: `/store/books[@cheap]/title`, call the `cheap` function on the `books` array and extract `title` from the result.
 
-**4.5. 通配符**
+**4.5. Wildcards**
 
-星号 `*` 作为通配符，用于匹配一个节点下的所有直接子元素。
+The asterisk `*` acts as a wildcard to match all direct child elements of a node.
 
-* **语法**: `*`
-* **对象上的行为**: 匹配对象的所有值，并返回一个包含这些值的新数组节点。
-* **数组上的行为**: 匹配数组的所有元素，并返回该数组自身。
-* **示例**: `/store/*/title`，获取 `store` 对象下所有直接子节点（在这里是 `books` 数组）的 `title` 字段。
+* **Syntax**: `*`
+* **Behavior on Objects**: Match all values of the object and return a new array node containing these values.
+* **Behavior on Arrays**: Match all elements of the array and return the array itself.
+* **Example**: `/store/*/title`, get the `title` field of all direct child nodes under the `store` object (here it's the `books` array).
 
-#### **高级语法**
+#### **Advanced Syntax**
 
-**5.1. 链式与混合语法**
+**5.1. Chained and Mixed Syntax**
 
-所有核心组件都可以自由组合，形成强大的链式查询。解析器会从左到右依次执行每个操作。
+All core components can be freely combined to form powerful chained queries. The parser executes each operation from left to right.
 
-* **示例**: `/store/books[@filter][0]/name`
-  1. `/store/books`: 获取 `books` 数组。
-  2. `[@filter]`: 在该数组上调用 `filter` 函数。
-  3. `[0]`: 获取函数返回结果（应为一个数组）的第一个元素。
-  4. `/name`: 获取该元素的 `name` 字段。
+* **Example**: `/store/books[@filter][0]/name`
+  1. `/store/books`: Get the `books` array.
+  2. `[@filter]`: Call the `filter` function on the array.
+  3. `[0]`: Get the first element of the function return result (should be an array).
+  4. `/name`: Get the `name` field of that element.
 
-**5.2. 特殊字符键名处理**
+**5.2. Special Character Key Name Handling**
 
-当对象键名包含 `/`, `.`, `[`, `]` 等特殊字符或非字母数字时，必须使用方括号和引号 `['<key>']` 或 `["<key>"]` 的形式来界定。
+When object key names contain special characters such as `/`, `.`, `[`, `]` or non-alphanumeric characters, they must be delimited using square brackets and quotes `['<key>']` or `["<key>"]`.
 
-* **语法**: `['<键名>']` 或 `["<键名>"]`
-* **键名包含斜杠**: `/['/api/v1/users']`
-* **键名包含点号**: `/data/['user.profile']/name`
-* **键名包含引号**:
-  * 如果键名为 `a"key`，使用 `['a"key']`。
-  * 如果键名为 `a'key`，使用 `["a'key"]`。
-* **与普通路径混合**: `/data['user-settings']/theme`
+* **Syntax**: `['<Key Name>']` or `["<Key Name>"]`
+* **Key with Slash**: `/['/api/v1/users']`
+* **Key with Dot**: `/data/['user.profile']/name`
+* **Key with Quotes**:
+  * If the key name is `a"key`, use `['a"key']`.
+  * If the key name is `a'key`, use `["a'key"]`.
+* **Mixed with Regular Paths**: `/data['user-settings']/theme`
 
-**5.3. 递归下降**
+**5.3. Recursive Descent**
 
-双斜杠 `//` 用于在当前节点及其所有后代中进行深度搜索，查找匹配的键。
+Double slashes `//` are used to perform deep searches in the current node and all its descendants to find matching keys.
 
-* **语法**: `//key`
-* **描述**: 与 `/` 只在直接子节点中查找不同，`//` 会遍历整个子树，将所有匹配 `key` 的节点收集到一个新的数组节点中。
-* **示例**: `//author` 将从根节点开始，查找所有层级下的 `author` 字段。
+* **Syntax**: `//key`
+* **Description**: Unlike `/` which only searches in direct children, `//` traverses the entire subtree and collects all nodes matching `key` into a new array node.
+* **Example**: `//author` will search for all `author` fields at all levels starting from the root node.
 
-**更多使用示例：**
+**More Usage Examples:**
 
 ```go
-// 查找所有价格字段
+// Find all price fields
 allPrices := root.Query("//price").Strings()
 
-// 查找所有包含标签的书籍
+// Find all books with tags
 taggedBooks := root.Query("//books").Filter(func(n xjson.Node) bool {
     return n.Get("tags").Len() > 0
 })
 
-// 查找所有库存为 true 的商品
+// Find all items in stock
 inStockItems := root.Query("//in_stock").Filter(func(n xjson.Node) bool {
     return n.Bool() == true
 })
 
-// 结合函数使用，查找所有低价商品
+// Combine with functions to find all cheap items
 cheapItems := root.Query("//price[@cheap]")
 ```
 
-**最佳实践：**
+**Best Practices:**
 
-1. **限制搜索范围**：先使用精确路径定位到大致区域，再使用递归下降
+1. **Limit Search Scope**: First locate to the approximate area using precise paths, then use recursive descent
 
    ```go
-   // 推荐：先定位到 store，再搜索
+   // Recommended: First locate to store, then search
    storePrices := root.Query("/store//price")
 
-   // 避免全局搜索
+   // Avoid global search
    allPrices := root.Query("//price")
    ```
-2. **结合过滤函数**：使用 `Filter()` 方法进一步筛选结果
+2. **Combine with Filter Functions**: Use the `Filter()` method to further filter results
 
    ```go
-   // 找到所有价格并筛选出低价的
+   // Find all prices and filter out the cheap ones
    cheapPrices := root.Query("//price").Filter(func(n xjson.Node) bool {
        price, _ := n.RawFloat()
        return price < 20
    })
    ```
-3. **谨慎使用**：在已知结构的情况下优先使用精确路径
 
-> **性能警告**：递归下降 `//` 是一个非常强大但开销极大的操作。因为它需要遍历一个节点下的整个子树，当处理大型或深层嵌套的 JSON 数据时，可能会成为性能瓶颈。建议仅在数据结构不确定或确实需要全局搜索时使用，在性能敏感的场景下应优先使用精确路径。
+3. **Use Caution**: Prioritize precise paths when the structure is known
 
-**5.4. 上级路径查找**
+> **Performance Warning**: Recursive descent `//` is a very powerful but costly operation. Because it needs to traverse the entire subtree of a node, it can become a performance bottleneck when processing large or deeply nested JSON data. It is recommended to use precise paths in performance-sensitive scenarios, and only use recursive descent when the data structure is uncertain or global search is truly needed.
 
-双点 `../` 语法用于访问当前节点的父级节点，实现相对路径导航。
+**5.4. Parent Path Lookup**
 
-* **语法**: `../key` 或 `../`
-* **描述**: 允许从当前节点向上导航到父级节点，然后继续向下查询。这在处理复杂嵌套结构时特别有用，可以在不知道完整路径的情况下进行灵活的数据访问。
-* **示例**: `/store/books[0]/../electronics` 从第一本书向上导航到 `store` 节点，然后访问 `electronics`。
+The double dot `../` syntax is used to access the parent node of the current node, implementing relative path navigation.
 
-**使用示例：**
+* **Syntax**: `../key` or `../`
+* **Description**: Allows navigation from the current node to the parent node, then continue querying downward. This is particularly useful when dealing with complex nested structures, allowing flexible data access without knowing the complete path.
+* **Example**: `/store/books[0]/../electronics` navigates from the first book to the `store` node, then accesses `electronics`.
+
+**Usage Examples:**
 
 ```go
-// 从书籍节点导航到父级 store，然后获取 electronics
+// Navigate from book node to parent store, then get electronics
 electronicsFromBook := root.Query("/store/books[0]/../electronics/laptops").Strings()
 
-// 获取所有书籍的父级分类名称
+// Get all book parent category names
 bookCategories := root.Query("/store/books[0]/../").Keys()
 
-// 在数组元素中引用兄弟字段
+// Reference sibling fields in array elements
 firstBookTitle := root.Query("/store/books[0]/title").String()
 firstBookPrice := root.Query("/store/books[0]/../books[0]/price").Float()
 
-// 多级上级导航
+// Multi-level parent navigation
 rootFromDeep := root.Query("/store/electronics/laptops[0]/../../authors").Strings()
 ```
 
-**实际应用场景：**
+**Real-World Application Scenarios:**
 
-1. **关联数据查询**：在嵌套结构中查找相关数据
+1. **Related Data Query**: Find related data in nested structures
 
    ```go
-   // 找到所有有库存商品的分类
+   // Find categories of all in-stock items
    inStockCategories := root.Query("/store/*/laptops").Filter(func(n xjson.Node) bool {
        return n.Get("in_stock").Bool() == true
    }).Query("../..").Keys()
    ```
-2. **数据验证**：检查字段间的关系
+2. **Data Validation**: Check relationships between fields
 
    ```go
-   // 验证价格是否在合理范围内
+   // Validate if price is within reasonable range
    validatePrice := root.Query("/store/books").Filter(func(n xjson.Node) bool {
        price := n.Get("price").Float()
-       category := n.Query("../").String() // 获取父级信息
-       // 根据分类验证价格
+       category := n.Query("../").String() // Get parent information
+       // Validate price based on category
        return isValidPriceForCategory(price, category)
    })
    ```
-3. **动态路径构建**：在不确定具体结构时进行导航
+
+3. **Dynamic Path Construction**: Navigate when the specific structure is uncertain
 
    ```go
-   // 从任意节点向上查找特定字段
-   findStoreInfo := root.Query("//price/../..") // 从价格找到对应的 store
+   // Find specific fields from any node
+   findStoreInfo := root.Query("//price/../..") // Find the corresponding store from price
    ```
 
-**限制和注意事项：**
+**Limitations and Considerations:**
 
-1. **根节点限制**：在根节点使用 `../` 会返回无效节点
-2. **性能考虑**：过多的上级导航可能影响代码可读性，建议在已知结构时使用精确路径
-3. **链式使用**：可以连续使用多个 `../` 进行多级向上导航
+1. **Root Node Limitation**: Using `../` on the root node will return an invalid node
+2. **Performance Considerations**: Too much parent navigation may affect code readability, it's recommended to use precise paths when the structure is known
+3. **Chained Usage**: Multiple `../` can be used consecutively for multi-level parent navigation
 
-#### **语法速查表**
+#### **Syntax Quick Reference**
 
-| 分类               | 语法            | 描述                                            | 示例                         |
-| :----------------- | :-------------- | :---------------------------------------------- | :--------------------------- |
-| **基础**     | `/`           | 路径段之间的分隔符。                            | `/store/books`             |
-|                    | `key`         | 访问对象的字段。                                | `/store`                   |
-| **数组**     | `[<index>]`   | 按索引访问数组元素。                            | `[0]`, `[-1]`            |
-|                    | `[start:end]` | 按范围访问数组元素（切片）。                    | `[1:3]`, `[:-1]`         |
-| **函数**     | `[@<name>]`   | 调用已注册的路径函数。                          | `[@cheap]`, `[@inStock]` |
-| **高级**     | `*`           | 匹配对象或数组的所有直接子元素。                | `/store/*`                 |
-|                    | `//key`       | 递归搜索所有后代节点中的 `key` (性能开销大)。 | `//author`                 |
-|                    | `../key`      | 访问父级节点，然后继续向下查询。                | `/books[0]/../electronics` |
-| **特殊字符** | `['<key>']`   | 界定包含特殊字符的键名。                        | `['user.profile']`         |
-|                    | `["<key>"]`   | 界定包含单引号的键名。                          | `["a'key"]`                |
+| Category | Syntax | Description | Example |
+| :--- | :--- | :--- | :--- |
+| **Basic** | `/` | Separator between path segments. | `/store/books` |
+| | `key` | Access object fields. | `/store` |
+| **Array** | `[<index>]` | Access array elements by index. | `[0]`, `[-1]` |
+| | `[start:end]` | Access array elements by range (slicing). | `[1:3]`, `[:-1]` |
+| **Function** | `[@<name>]` | Call registered path functions. | `[@cheap]`, `[@inStock]` |
+| **Advanced** | `*` | Match all direct child elements of object or array. | `/store/*` |
+| | `//key` | Recursively search for `key` in all descendant nodes (high performance cost). | `//author` |
+| | `../key` | Access parent node, then continue querying downward. | `/books[0]/../electronics` |
+| **Special Characters** | `['<key>']` | Delimit key names containing special characters. | `['user.profile']` |
+| | `["<key>"]` | Delimit key names containing single quotes. | `["a'key"]` |
 
-### 6. 函数注册和调用
+### 6. Function Registration and Calling
 
-**新版本的函数系统更加强大和灵活：**
+**The new function system is more powerful and flexible:**
 
 ```go
-// 注册函数（推荐方式）
+// Register function (recommended)
 root.RegisterFunc("filterFunc", func(n xjson.Node) xjson.Node {
     return n.Filter(func(child xjson.Node) bool {
         return child.Get("price").Float() > 10
     })
 })
 
-// 路径查询中使用函数
+// Use function in path query
 result := root.Query("/items[@filterFunc]/name")
 
-// 直接调用函数
+// Call function directly
 result := root.CallFunc("filterFunc")
 
-// 使用 Apply 立即应用函数
+// Apply function immediately
 result := root.Apply(func(n xjson.Node) bool {
     return n.Get("active").Bool()
 })
 
-// 移除函数
+// Remove function
 root.RemoveFunc("filterFunc")
 
-// 获取已注册函数
+// Get registered functions
 funcs := root.GetFuncs()
 ```
 
-## 🛠️ 完整 API 参考
+## 🛠️ Complete API Reference
 
-### 函数管理
+### Function Management
 
-| 方法                             | 描述                       | 示例                                        |
-| -------------------------------- | -------------------------- | ------------------------------------------- |
-| **RegisterFunc(name, fn)** | 注册路径函数               | `root.RegisterFunc("cheap", filterCheap)` |
-| **CallFunc(name)**         | 直接调用函数               | `root.CallFunc("cheap")`                  |
-| **RemoveFunc(name)**       | 移除函数                   | `root.RemoveFunc("cheap")`                |
-| **Apply(fn)**              | 立即应用函数               | `root.Apply(predicateFunc)`               |
-| **GetFuncs()**             | 获取已注册函数             | `funcs := root.GetFuncs()`                |
-| **Error() error**          | 返回链式调用中的第一个错误 | `if err := n.Error(); err != nil { ... }` |
+| Method | Description | Example |
+| --- | --- | --- |
+| **RegisterFunc(name, fn)** | Register path function | `root.RegisterFunc("cheap", filterCheap)` |
+| **CallFunc(name)** | Call function directly | `root.CallFunc("cheap")` |
+| **RemoveFunc(name)** | Remove function | `root.RemoveFunc("cheap")` |
+| **Apply(fn)** | Apply function immediately | `root.Apply(predicateFunc)` |
+| **GetFuncs()** | Get registered functions | `funcs := root.GetFuncs()` |
+| **Error() error** | Return the first error in chained calls | `if err := n.Error(); err != nil { ... }` |
 
-### 流式操作
+### Streaming Operations
 
-| 方法                  | 描述         | 示例                                                                   |
-| --------------------- | ------------ | ---------------------------------------------------------------------- |
-| **Filter(fn)**  | 过滤节点集合 | `n.Filter(func(n Node) bool { return n.Get("active").Bool() })`      |
-| **Map(fn)**     | 转换节点集合 | `n.Map(func(n Node) interface{} { return n.Get("name").String() })`  |
-| **ForEach(fn)** | 遍历节点集合 | `n.ForEach(func(i interface{}, v Node) { fmt.Println(v.String()) })` |
+| Method | Description | Example |
+| --- | --- | --- |
+| **Filter(fn)** | Filter node collection | `n.Filter(func(n Node) bool { return n.Get("active").Bool() })` |
+| **Map(fn)** | Transform node collection | `n.Map(func(n Node) interface{} { return n.Get("name").String() })` |
+| **ForEach(fn)** | Iterate through node collection | `n.ForEach(func(i interface{}, v Node) { fmt.Println(v.String()) })` |
 
-### 原生值访问
+### Native Value Access
 
-| 方法                      | 描述                | 示例                                         |
-| ------------------------- | ------------------- | -------------------------------------------- |
-| **RawFloat()**      | 直接获取 float64 值 | `if price, ok := n.RawFloat(); ok { ... }` |
-| **RawString()**     | 直接获取 string 值  | `if name, ok := n.RawString(); ok { ... }` |
-| **Strings()**       | 获取字符串数组      | `tags := n.Strings()`                      |
-| **Contains(value)** | 检查是否包含字符串  | `if n.Contains("target") { ... }`          |
-| **AsMap()**         | 获取节点为 map      | `obj := n.AsMap()`                         |
+| Method | Description | Example |
+| --- | --- | --- |
+| **RawFloat()** | Directly get float64 value | `if price, ok := n.RawFloat(); ok { ... }` |
+| **RawString()** | Directly get string value | `if name, ok := n.RawString(); ok { ... }` |
+| **Strings()** | Get string array | `tags := n.Strings()` |
+| **Contains(value)** | Check if string is contained | `if n.Contains("target") { ... }` |
+| **AsMap()** | Get node as map | `obj := n.AsMap()` |
+| **Keys()** | Get all keys of object | `keys := n.Keys()` |
 
-### 强制类型转换
+### Forced Type Conversion
 
-| 方法                   | 描述                            | 示例                        |
-| ---------------------- | ------------------------------- | --------------------------- |
-| **MustString()** | 获取字符串值，失败时 panic      | `value := n.MustString()` |
-| **MustFloat()**  | 获取 float64 值，失败时 panic   | `value := n.MustFloat()`  |
-| **MustInt()**    | 获取 int64 值，失败时 panic     | `value := n.MustInt()`    |
-| **MustBool()**   | 获取 bool 值，失败时 panic      | `value := n.MustBool()`   |
-| **MustTime()**   | 获取 time.Time 值，失败时 panic | `value := n.MustTime()`   |
-| **MustArray()**  | 获取数组值，失败时 panic        | `value := n.MustArray()`  |
-| **MustAsMap()**  | 获取 map 值，失败时 panic       | `value := n.MustAsMap()`  |
+| Method | Description | Example |
+| --- | --- | --- |
+| **MustString()** | Get string value, panic on failure | `value := n.MustString()` |
+| **MustFloat()** | Get float64 value, panic on failure | `value := n.MustFloat()` |
+| **MustInt()** | Get int64 value, panic on failure | `value := n.MustInt()` |
+| **MustBool()** | Get bool value, panic on failure | `value := n.MustBool()` |
+| **MustTime()** | Get time.Time value, panic on failure | `value := n.MustTime()` |
+| **MustArray()** | Get array value, panic on failure | `value := n.MustArray()` |
+| **MustAsMap()** | Get map value, panic on failure | `value := n.MustAsMap()` |
 
-## ⚡ 性能优化
+## ⚡ Performance Optimization
 
-* **函数缓存**：编译后的路径会被缓存，以加速重复查询。
-* **原生值访问**：`Raw` 系列方法直接从底层内存访问数据，避免创建中间 **Node** 对象。
-* **短路优化**：在某些过滤和查询场景中支持提前终止。
-* **高效链式操作**：每个操作都经过高度优化，减少数据拷贝和内存分配。
+* **Function Caching**: Compiled paths are cached to accelerate repeated queries.
+* **Native Value Access**: `Raw` series methods directly access data from underlying memory, avoiding creation of intermediate **Node** objects.
+* **Short-Circuit Optimization**: Support early termination in some filtering and query scenarios.
+* **Efficient Chained Operations**: Each operation is highly optimized to reduce data copying and memory allocation.
 
-**高性能函数示例：**
+**High-Performance Function Example:**
 
 ```go
 root.RegisterFunc("fastFilter", func(n xjson.Node) xjson.Node {
     return n.Filter(func(child xjson.Node) bool {
-        // 直接获取原生 float64 值，无 Node 开销
+        // Directly get native float64 value, no Node overhead
         if price, ok := child.Get("price").RawFloat(); ok {
             return price < 20
         }
@@ -471,12 +803,12 @@ root.RegisterFunc("fastFilter", func(n xjson.Node) xjson.Node {
 })
 ```
 
-## 📚 使用场景
+## 📚 Usage Scenarios
 
-### 业务规则封装
+### Business Rule Encapsulation
 
 ```go
-// 注册库存检查函数
+// Register inventory check function
 root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
     return n.Filter(func(p xjson.Node) bool {
         return p.Get("stock").Int() > 0 &&
@@ -484,17 +816,17 @@ root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
     })
 })
 
-// 使用语义化查询
+// Use semantic queries
 availableProducts := root.Query("/products[@inStock]")
 ```
 
-### 数据转换管道
+### Data Transformation Pipeline
 
 ```go
 import "strings"
 import "math"
 
-// 创建数据清洗管道
+// Create data cleaning pipeline
 root.RegisterFunc("sanitize", func(n xjson.Node) xjson.Node {
     return n.Map(func(item xjson.Node) interface{} {
         return map[string]interface{}{
@@ -505,14 +837,14 @@ root.RegisterFunc("sanitize", func(n xjson.Node) xjson.Node {
     })
 })
 
-// 应用清洗管道
+// Apply cleaning pipeline
 cleanData := root.Query("/rawInput[@sanitize]")
 ```
 
-### 复杂数据聚合
+### Complex Data Aggregation
 
 ```go
-// 计算平均分
+// Calculate average score
 root.RegisterFunc("withAvg", func(n xjson.Node) xjson.Node {
     return n.Map(func(user xjson.Node) interface{} {
         scoresNode := user.Get("scores")
@@ -531,237 +863,68 @@ root.RegisterFunc("withAvg", func(n xjson.Node) xjson.Node {
 processedUsers := root.Query("/users[@withAvg]")
 ```
 
-## 🌟 设计优势
+## 🌟 Design Advantages
 
-* **概念简化**：只需理解 **Node** **单一概念，学习曲线平缓。**
-* **灵活组合**：路径函数与流式操作无缝结合，表达能力强。
-* **健壮可靠**：链式错误处理机制让代码更简洁且不易出错。
-* **性能优异**：通过高效实现和原生访问 API 保持高性能。
-* **类型安全**：完善的类型系统确保编译时的类型检查。
-* **易于扩展**：模块化设计便于添加新功能。
+* **Concept Simplification**: Only need to understand the **Node** **concept, shallow learning curve.**
+* **Flexible Combination**: Path functions seamlessly combine with streaming operations, strong expressive power.
+* **Robust and Reliable**: Chained error handling mechanism makes code more concise and less error-prone.
+* **Excellent Performance**: Maintain high performance through efficient implementation and native access APIs.
+* **Type Safety**: Complete type system ensures compile-time type checking.
+* **Easy to Extend**: Modular design facilitates adding new features.
 
-## 🔄 升级指南
+## 🔄 Upgrade Guide
 
-### 从 v0.0.1 升级到 v0.0.2
+### Upgrading from v0.0.2 to v0.1.0
 
-**主要变化：**
+**Major Changes:**
 
-1. **函数系统更新**：
-
+1. **Enhanced Write Operations**:
+   
    ```go
-   // 旧版本 (已弃用)
-   root.Func("name", fn)
-
-   // 新版本 (推荐)
-   root.RegisterFunc("name", fn)
+   // New SetValue method for direct value setting
+   node.SetValue("new value")
+   
+   // Enhanced Set method with better error handling
+   result := node.Set("key", "value")
    ```
-2. **新增 Apply 方法**：
 
+2. **Additional Type Conversion Methods**:
+   
    ```go
-   // 立即应用函数
-   result := root.Apply(func(n xjson.Node) bool {
-       return n.Get("active").Bool()
-   })
+   // AsMap for object conversion
+   objMap := node.AsMap()
+   
+   // MustAsMap for forced object conversion
+   objMap := node.MustAsMap()
+   
+   // Keys for getting all object keys
+   keys := node.Keys()
    ```
-3. **类型系统增强**：
 
+3. **Enhanced Error Handling**:
+   
    ```go
-   // 使用具体的函数类型
-   var filterFunc xjson.PredicateFunc = func(n xjson.Node) bool {
-       return n.Get("price").Float() > 10
+   // More detailed error information
+   if err := node.Error(); err != nil {
+       fmt.Printf("Error at path %s: %v\n", node.Path(), err)
    }
+   ```
 
-   var transformFunc xjson.TransformFunc = func(n xjson.Node) interface{} {
-       return n.Get("name").String()
+4. **Performance Improvements**:
+   
+   ```go
+   // Optimized RawString and RawFloat methods
+   if str, ok := node.RawString(); ok {
+       // Zero-copy string access
    }
    ```
-4. **通配符支持**：
 
-   ```go
-   // 新增通配符查询
-   result := root.Query("/store/*/title")
-   ```
-5. **新增方法**：
+**Compatibility Notes:**
 
-   ```go
-   // Must* 方法在类型不匹配时 panic
-   value := root.MustString()
+- All existing query syntax continues to work
+- New features are fully backward compatible
+- Performance improvements do not affect existing code
 
-   // AsMap 用于对象转换
-   obj := root.AsMap()
-
-   // GetFuncs 用于获取已注册函数
-   funcs := root.GetFuncs()
-   ```
-
-**兼容性说明：**
-
-- 所有现有的查询语法继续有效
-- 新功能完全向后兼容
-
-实现思路:
-
-```markdown
-为实现 XJSON 的目标，我们的架构将遵循以下核心原则：
-懒惰求值 (Lazy Evaluation): JSON 文本在初始 Parse 时仅做有效性验证和根节点构建，不进行完整的树遍历和解析。节点的子元素仅在被首次访问时（如 Get, Index, ForEach）才进行解析。这是实现高性能的关键，尤其是在处理大型 JSON 文件时，可以避免不必要的计算和内存分配。
-零拷贝读取 (Zero-Copy Read): 对于所有读取操作，Node 结构体仅存储指向原始 []byte 数据切片的指针/索引。在进行 Raw(), String(), RawString() 等操作时，可以直接返回原始字节数据的子切片，无需进行任何内存拷贝和分配，从而达到极致的读取性能。
-写时复制 (Copy-on-Write, COW): 读取是零拷贝的，但写入操作（如 Set, Append）则会破坏这种模式。为保证数据一致性，当一个节点首次被修改时，它及其所有父节点路径上的节点都将从 “指针模式” 转换为 “实体化模式 (Materialized Mode)”，即创建实际的 map 或 slice 来存储其内容。这确保了对原始数据的修改是可控且高效的。
-状态传递 (State Propagation): 错误状态和函数上下文（已注册的函数）将在链式调用中沿着节点树向下传递或在创建新节点时被继承。这使得 root.Error() 可以在任意时刻捕获到链中发生的第一个错误，也让函数在子查询中自然可用。
-2. 核心数据结构：node
-Node 接口的底层实现 node 结构体是整个库的基石。
-code
-Go
-// node 是 Node 接口的内部实现
-type node struct {
-    // --- 核心数据指针 ---
-    // root 指向整个JSON文档的根节点，用于访问全局状态（原始数据、函数集、错误）
-    root *node 
-  
-    // --- 数据表示 (互斥) ---
-    // 1. 指针模式 (Lazy & Zero-Copy)
-    // start 和 end 定义了此节点在 root.raw 中的字节范围
-    start int
-    end   int
-
-    // 2. 实体化模式 (Copy-on-Write for mutations)
-    // 当节点被修改后，它将持有实际的Go类型数据
-    materializedValue interface{}
-    isDirty           bool // 标记是否已被修改
-
-    // --- 元数据 ---
-    // 节点类型（Object, Array, String, etc.），在首次访问时确定
-    nodeType NodeType
-  
-    // 指向父节点的指针，是实现 '../' 的关键
-    parent   *node 
-}
-
-// 根节点独有的状态
-type rootState struct {
-    // 原始JSON字节数据
-    raw []byte
-
-    // 全局错误状态，用于链式错误处理
-    // 使用 *error 是为了方便在链中共享和修改同一个错误实例
-    err *error
-
-    // 全局函数注册表
-    funcs *map[string]UnaryPathFunc
-
-    // 查询路径解析器的缓存，避免重复解析相同的路径字符串
-    pathCache *sync.Map // map[string][]queryOperation
-}
-设计说明:
-分离 root 状态：将 raw, err, funcs 等全局状态从每个 node 中分离出来，仅由根节点持有。所有子节点通过 root 指针回溯访问，极大地减少了内存占用，并简化了状态管理。
-双模式数据表示:
-指针模式 (start, end): 默认模式。轻量级，高效。
-实体化模式 (materializedValue): 当 Set() 或 Append() 被调用时触发。节点转换为此模式，start/end 失效。
-parent 指针: 这是实现 ../ 路径导航的核心。每个子节点在创建时都会被赋予其父节点的引用。
-3. 解析策略：懒惰与分层
-xjson.Parse(data) 的工作流程:
-验证 data 是否是有效的 JSON。可以使用一个快速的扫描器来检查括号匹配等基本规则。如果无效，立即返回 nil, err。
-创建一个 root 节点。
-初始化 root.rootState：
-raw: 存储传入的 data ([]byte)。
-err: 初始化为 nil。
-funcs: 创建一个新的 map。
-pathCache: 创建一个新的 sync.Map。
-设置 root.start = 0, root.end = len(data)。
-root.nodeType 会根据第一个非空白字符（{ 或 [）被初步确定为 Object 或 Array。
-返回 root 节点。此刻，除了根节点，没有任何子节点被解析或创建。
-内部解析触发器 ensureParsed():
-当对一个 Object 或 Array 类型的节点调用 Get(), Index(), Len(), ForEach() 等需要访问其内部结构的方法时，会触发一个内部的 ensureParsed() 方法：
-检查该节点是否已经解析过 (materializedValue != nil 或已有缓存的子节点列表)。如果是，直接返回。
-如果不是，则启动一个 局部扫描器 (Local Scanner)，该扫描器只工作在 root.raw[node.start:node.end] 这个字节范围内。
-扫描器逐层解析：
-对于 Object，它会识别出顶层的 "key": value 对。对于每个 value，它会创建一个新的 childNode，设置其 start 和 end 指向 value 在原始 raw 数据中的位置，并设置 childNode.parent = currentNode。它 不会 递归解析 value 的内部。
-对于 Array，它会识别出顶层的元素。同样，为每个元素创建 childNode。
-解析出的子节点列表或键值对被缓存（例如存储在 materializedValue 中，即使它还没有被 "dirty"）。
-这个机制确保了解析工作只在需要时、且只在必要的最小范围内发生。
-4. 查询引擎：编译与执行
-Query(path) 是库的核心功能。其实现分为两个阶段：编译和执行。
-阶段一：路径编译 (Path Compilation)
-缓存检查: 首先检查 root.pathCache 中是否已存在该 path 的编译结果。如果存在，直接使用。
-词法分析 (Tokenization): 如果缓存未命中，则对 path 字符串进行词法分析，将其分解为一系列的 Token。例如，store/books[@cheap][0] 会被分解为:
-TOKEN_IDENT(store), TOKEN_SEP(/), TOKEN_IDENT(books), TOKEN_LBRACKET([), TOKEN_AT(@), TOKEN_IDENT(cheap), TOKEN_RBRACKET(]), TOKEN_LBRACKET([), TOKEN_NUMBER(0), TOKEN_RBRACKET(])
-语法分析 (Parsing): 将 Token 流解析成一个 []queryOperation 切片（操作指令序列）。
-code
-Go
-type queryOpType int
-const (
-    OpKey        queryOpType = iota // key
-    OpIndex                         // [i]
-    OpSlice                         // [i:j]
-    OpFuncCall                      // [@name]
-    OpWildcard                      // *
-    OpRecursive                     // //key
-    OpParent                        // ../
-)
-
-type queryOperation struct {
-    Type  queryOpType
-    Value interface{} // "key" string, int index, [2]int slice, "funcName" string
-}
-store/books[@cheap][0] 会被编译成:
-[{OpKey, "store"}, {OpKey, "books"}, {OpFuncCall, "cheap"}, {OpIndex, 0}]
-缓存结果: 将编译好的 []queryOperation 存入 root.pathCache。
-阶段二：路径执行 (Path Execution)
-Query 方法获取编译后的操作序列。
-从当前节点 (currentNode := self) 开始，循环遍历操作序列。
-使用一个 switch 语句根据 op.Type 执行相应的操作，并将结果赋给 currentNode 以供下一次迭代使用。
-code
-Go
-func (n *node) executeQuery(ops []queryOperation) Node {
-    current := Node(n)
-    for _, op := range ops {
-        if current.Error() != nil {
-            return current // 短路：如果已经出错，则停止执行
-        }
-        switch op.Type {
-        case OpKey:
-            current = current.Get(op.Value.(string))
-        case OpIndex:
-            current = current.Index(op.Value.(int))
-        case OpRecursive:
-            // 执行一个独立的深度优先或广度优先搜索
-            current = recursiveSearch(current, op.Value.(string))
-        case OpParent:
-            if current.(*node).parent != nil {
-                current = current.(*node).parent
-            } else {
-                current = newInvalidNode(current.(*node).root, "cannot navigate above root")
-            }
-        case OpFuncCall:
-            current = current.CallFunc(op.Value.(string))
-        // ... 其他操作 ...
-        }
-    }
-    return current
-}
-recursiveSearch 会返回一个新创建的、包含所有匹配结果的 Array 类型节点。
-5. 可变性与写时复制 (COW)
-这是实现 Set 和 Append 的关键，也是最复杂的部分。
-Set(key, value) 的流程:
-调用 materialize(recursive bool) 方法。此方法是 COW 的核心。
-materialize(false):
-检查当前节点是否为 isDirty。如果是，直接操作。
-如果不是，将 isDirty 设为 true。
-调用 ensureParsed() 来获取所有子节点的指针。
-创建一个新的 map[string]Node (对于 Object) 或 []Node (对于 Array)。
-将所有解析出的子节点填入这个新的 map 或 slice。
-将这个 map/slice 存入 materializedValue。
-关键：调用 parent.materialize(true) 将修改状态向上传播。
-materialize(true) (递归调用):
-此方法仅用于将父节点标记为 dirty，并确保其也转为实体化模式，因为它包含了一个被修改的子节点。这个过程会一直持续到根节点。
-在实体化后的 map 中设置键值。value 会被转换成一个新的 node。
-返回当前节点，以支持链式调用。
-当最后调用 root.String() 时，它会检查 isDirty 标志。如果是 true，它必须调用一个 marshal() 函数，根据 materializedValue 重新序列化整个 JSON 树，而不是返回原始的 raw 切片。
-6. 错误处理与函数系统
-错误处理: root.err 是一个指向 error 的指针。当任何操作失败时（如路径未找到、类型转换失败），该操作会首先检查 *root.err 是否已存在。如果不存在，则将新错误赋给它。所有后续操作都会检查 *root.err != nil，如果是，则立即返回当前节点而不执行任何操作。这实现了 “首错模式 (First-Error Wins)” 和链式调用的健壮性。
-函数系统: root.funcs 存储了函数。当 RegisterFunc 被调用时，函数被添加到 root.funcs 这个 map 中。CallFunc 或路径中的 [@func] 会在 root.funcs 中查找函数名并执行。因为所有节点共享同一个 root 指针，所以任何节点上注册的函数对整个文档树都是可见的。如果需要节点级别的函数作用域，则 node 结构体需要自己的 funcs map，并在创建子节点时进行继承和覆盖。目前的全局设计更简单、更符合预期。
-
-```
-
-## 📄 许可证
+## 📄 License
 
 MIT License
