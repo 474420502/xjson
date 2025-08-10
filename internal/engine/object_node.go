@@ -193,6 +193,14 @@ func (n *objectNode) addChild(key string, child core.Node) {
 	if n.value == nil {
 		n.value = make(map[string]core.Node)
 	}
-	child.(*baseNode).parent = n
+	
+	// Instead of type assertion, we use the Parent() and SetParent() pattern
+	// All node types embed baseNode which has parent field
+	if bn, ok := child.(*baseNode); ok {
+		bn.parent = n
+	} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+		inode.setParent(n)
+	}
+	
 	n.value[key] = child
 }

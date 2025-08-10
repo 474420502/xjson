@@ -84,6 +84,11 @@ func (n *baseNode) Parent() core.Node {
 	return n.parent
 }
 
+// setParent sets the parent node. This is used internally when building node trees.
+func (n *baseNode) setParent(parent core.Node) {
+	n.parent = parent
+}
+
 func (n *baseNode) GetFuncs() *map[string]core.UnaryPathFunc {
 	return n.funcs
 }

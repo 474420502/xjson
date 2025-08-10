@@ -180,7 +180,15 @@ func (n *arrayNode) addChild(child core.Node) {
 	if n.value == nil {
 		n.value = make([]core.Node, 0)
 	}
-	child.(*baseNode).parent = n
+	
+	// Instead of type assertion, we use the Parent() and SetParent() pattern
+	// All node types embed baseNode which has parent field
+	if bn, ok := child.(*baseNode); ok {
+		bn.parent = n
+	} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+		inode.setParent(n)
+	}
+	
 	n.value = append(n.value, child)
 }
 
