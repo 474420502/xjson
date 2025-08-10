@@ -13,69 +13,92 @@ type slice struct {
 	Start, End int
 }
 
+// Op represents a query operation type for the simple query parser here.
+type Op int
+
+const (
+	OpKey Op = iota
+	OpIndex
+	OpSlice
+	OpFunc
+	OpWildcard
+	OpRecursive
+	OpParent
+)
+
+// QueryToken represents a token in the parsed path.
+type QueryToken struct {
+	Op    Op
+	Value interface{}
+}
+
 // ParseQuery tokenizes a query path into a sequence of operations.
-func ParseQuery(path string) ([]core.QueryToken, error) {
-	// Minimal parser supporting: /key segments, [index], [start:end], [@func], //recursive, and ../ parent
+func ParseQuery(path string) ([]QueryToken, error) {
 	if path == "" || path == "/" {
-		return []core.QueryToken{}, nil
+		return []QueryToken{}, nil
 	}
-	tokens := make([]core.QueryToken, 0)
+	tokens := make([]QueryToken, 0)
+	p := 0
 
-	for len(path) > 0 {
-		// Skip a single leading '/' but preserve '//' for recursive descent
-		if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") {
-			path = path[1:]
-			continue
-		}
-		// Handle parent navigation
-		if strings.HasPrefix(path, "../") {
-			tokens = append(tokens, core.QueryToken{Op: core.OpParent, Value: ".."})
-			path = path[3:]
-			continue
-		} else if path == "../" || path == ".." {
-			tokens = append(tokens, core.QueryToken{Op: core.OpParent, Value: ".."})
-			break
-		}
-
-		// Handle recursive descent
-		if strings.HasPrefix(path, "//") {
-			// Find the key after //
-			path = path[2:] // Skip //
-			nextSlash := strings.IndexByte(path, '/')
-			nextBracket := strings.IndexByte(path, '[')
-
-			cut := len(path)
-			if nextSlash >= 0 && nextSlash < cut {
-				cut = nextSlash
-			}
-			if nextBracket >= 0 && nextBracket < cut {
-				cut = nextBracket
-			}
-
-			if cut > 0 {
-				key := path[:cut]
-				tokens = append(tokens, core.QueryToken{Op: core.OpRecursive, Value: key})
-				path = path[cut:]
-				if strings.HasPrefix(path, "/") {
-					path = path[1:]
-				}
+	for p < len(path) {
+		// Skip leading slashes but handle '//' for recursive descent
+		if path[p] == '/' {
+			if p+1 < len(path) && path[p+1] == '/' { // Recursive descent
+				p += 2
+				nextSep := findNextSeparator(path, p)
+				key := path[p:nextSep]
+				tokens = append(tokens, QueryToken{Op: OpRecursive, Value: key})
+				p = nextSep
 				continue
-			} else {
-				// Special case: "//" at the end, which means find all nodes
-				tokens = append(tokens, core.QueryToken{Op: core.OpRecursive, Value: ""})
-				break
 			}
+			p++ // Skip single slash
+			continue
 		}
 
-		if path[0] == '[' { // index or func
-			end := strings.IndexByte(path, ']')
-			if end <= 0 {
+		if strings.HasPrefix(path[p:], "../") {
+			tokens = append(tokens, QueryToken{Op: OpParent, Value: ".."})
+			p += 3
+			continue
+		} else if strings.HasPrefix(path[p:], "..") {
+			tokens = append(tokens, QueryToken{Op: OpParent, Value: ".."})
+			p += 2
+			continue
+		}
+
+		if path[p] == '[' {
+			p++ // consume '['
+			if p >= len(path) {
+				return nil, fmt.Errorf("unclosed bracket in path")
+			}
+			if path[p] == '\'' || path[p] == '"' {
+				quote := path[p]
+				p++
+				start := p
+				for p < len(path) && path[p] != quote {
+					p++
+				}
+				if p >= len(path) {
+					return nil, fmt.Errorf("unclosed quote in key name")
+				}
+				key := path[start:p]
+				tokens = append(tokens, QueryToken{Op: OpKey, Value: key})
+				p++ // consume closing quote
+				if p >= len(path) || path[p] != ']' {
+					return nil, fmt.Errorf("missing closing bracket for quoted key")
+				}
+				p++ // consume ']'
+				continue
+			}
+
+			end := strings.IndexByte(path[p:], ']')
+			if end == -1 {
 				return nil, fmt.Errorf("unclosed bracket in path: %s", path)
 			}
-			inner := path[1:end]
-			if strings.HasPrefix(inner, "@") { // func
-				name := strings.TrimPrefix(inner, "@")
-				tokens = append(tokens, core.QueryToken{Op: core.OpFunc, Value: name})
+			inner := path[p : p+end]
+			p += end + 1
+
+			if strings.HasPrefix(inner, "@") {
+				tokens = append(tokens, QueryToken{Op: OpFunc, Value: strings.TrimPrefix(inner, "@")})
 			} else if strings.Contains(inner, ":") {
 				parts := strings.SplitN(inner, ":", 2)
 				s, e := 0, -1
@@ -92,53 +115,70 @@ func ParseQuery(path string) ([]core.QueryToken, error) {
 						return nil, fmt.Errorf("invalid slice end: %s", parts[1])
 					}
 				}
-				tokens = append(tokens, core.QueryToken{Op: core.OpSlice, Value: slice{Start: s, End: e}})
-			} else { // index
+				tokens = append(tokens, QueryToken{Op: OpSlice, Value: slice{Start: s, End: e}})
+			} else {
 				idx, err := strconv.Atoi(inner)
 				if err != nil {
 					return nil, fmt.Errorf("invalid index: %s", inner)
 				}
-				tokens = append(tokens, core.QueryToken{Op: core.OpIndex, Value: idx})
-			}
-			if end+1 < len(path) && path[end+1] == '/' {
-				path = path[end+2:]
-			} else {
-				path = path[end+1:]
-				if strings.HasPrefix(path, "/") {
-					path = path[1:]
-				}
+				tokens = append(tokens, QueryToken{Op: OpIndex, Value: idx})
 			}
 			continue
 		}
-		// key until next '/' or '['
-		nextSlash := strings.IndexByte(path, '/')
-		nextBracket := strings.IndexByte(path, '[')
-		cut := len(path)
-		if nextSlash >= 0 && nextSlash < cut {
-			cut = nextSlash
-		}
-		if nextBracket >= 0 && nextBracket < cut {
-			cut = nextBracket
-		}
-		key := path[:cut]
-		if key != "" {
-			// If the segment is a pure integer (possibly with leading -), treat it as an index op
-			if idx, err := strconv.Atoi(key); err == nil && (len(key) == 1 || (key[0] != '0' && key[0] != '+')) {
-				tokens = append(tokens, core.QueryToken{Op: core.OpIndex, Value: idx})
+
+		nextSep := findNextSeparator(path, p)
+		key := path[p:nextSep]
+		if key == "*" {
+			tokens = append(tokens, QueryToken{Op: OpWildcard, Value: "*"})
+		} else if key != "" {
+			if i, ok := tryParseInt(key); ok {
+				tokens = append(tokens, QueryToken{Op: OpIndex, Value: i})
 			} else {
-				tokens = append(tokens, core.QueryToken{Op: core.OpKey, Value: key})
+				tokens = append(tokens, QueryToken{Op: OpKey, Value: key})
 			}
 		}
-		if cut < len(path) && path[cut] == '/' {
-			path = path[cut+1:]
-		} else {
-			path = path[cut:]
-		}
+		p = nextSep
 	}
 	return tokens, nil
 }
 
-// recursiveSearch performs a recursive search for a key in the node tree
+func findNextSeparator(path string, start int) int {
+	for i := start; i < len(path); i++ {
+		if path[i] == '/' || path[i] == '[' {
+			return i
+		}
+	}
+	return len(path)
+}
+
+func tryParseInt(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	// allow negative index
+	if s[0] == '-' && len(s) == 1 {
+		return 0, false
+	}
+	if s[0] == '-' {
+		for i := 1; i < len(s); i++ {
+			if s[i] < '0' || s[i] > '9' {
+				return 0, false
+			}
+		}
+	} else {
+		for i := 0; i < len(s); i++ {
+			if s[i] < '0' || s[i] > '9' {
+				return 0, false
+			}
+		}
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
 func recursiveSearch(node core.Node, key string) core.Node {
 	results := make([]core.Node, 0)
 
@@ -149,19 +189,16 @@ func recursiveSearch(node core.Node, key string) core.Node {
 		}
 		switch n.Type() {
 		case core.Object:
-			// If searching for a specific key inside this object
 			if key != "" {
 				c := n.Get(key)
 				if c != nil && c.IsValid() {
 					results = append(results, c)
 				}
 			}
-			// Recurse into all values
 			n.ForEach(func(_ interface{}, v core.Node) {
 				walk(v)
 			})
 		case core.Array:
-			// Recurse into all elements
 			n.ForEach(func(_ interface{}, v core.Node) {
 				walk(v)
 			})
@@ -169,11 +206,9 @@ func recursiveSearch(node core.Node, key string) core.Node {
 	}
 
 	walk(node)
-
-	return &arrayNode{
-		baseNode: baseNode{funcs: node.GetFuncs()},
-		children: results,
-	}
+	arr := NewArrayNode(nil, nil, node.GetFuncs())
+	arr.(*arrayNode).value = results
+	return arr
 }
 
 func applySimpleQuery(start core.Node, path string) core.Node {
@@ -188,80 +223,101 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 		}
 
 		switch t.Op {
-		case core.OpKey:
-			if o, ok := cur.(*objectNode); ok {
-				cur = o.Get(t.Value.(string))
+		case OpKey:
+			key := t.Value.(string)
+			if a, ok := cur.(*arrayNode); ok {
+				results := make([]core.Node, 0)
+				a.lazyParse()
+				for _, item := range a.value {
+					if item.Type() == core.Object {
+						res := item.Get(key)
+						if res.IsValid() {
+							results = append(results, res)
+						}
+					}
+				}
+				if len(results) == 0 {
+					return newInvalidNode(fmt.Errorf("key '%s' not found in any array element", key))
+				}
+				newArr := NewArrayNode(a, nil, a.GetFuncs())
+				newArr.(*arrayNode).value = results
+				newArr.(*arrayNode).isDirty = true
+				cur = newArr
+			} else if o, ok := cur.(*objectNode); ok {
+				cur = o.Get(key)
 			} else {
-				return newInvalidNode(fmt.Errorf("not an object for key access"))
+				return newInvalidNode(fmt.Errorf("not an object for key access '%s' on node type %v", key, cur.Type()))
 			}
-		case core.OpIndex:
+		case OpIndex:
 			if a, ok := cur.(*arrayNode); ok {
 				cur = a.Index(t.Value.(int))
 			} else {
-				return newInvalidNode(fmt.Errorf("not an array for index access"))
+				return newInvalidNode(fmt.Errorf("not an array for index access: %v", cur.Raw()))
 			}
-		case core.OpSlice:
+		case OpSlice:
 			if a, ok := cur.(*arrayNode); ok {
-				a.ensureParsed()
+				a.lazyParse()
 				s := t.Value.(slice)
+				arrLen := len(a.value)
+
 				start := s.Start
-				end := s.End
 				if start < 0 {
-					start = len(a.children) + start
-				}
-				if end < 0 {
-					end = len(a.children) + end
-				}
-				if end == -1 || end > len(a.children) {
-					end = len(a.children)
+					start = arrLen + start
 				}
 				if start < 0 {
 					start = 0
+				} else if start > arrLen {
+					start = arrLen
 				}
+
+				end := s.End
+				if s.End == -1 {
+					end = arrLen
+				} else if end < 0 {
+					end = arrLen + end
+				}
+
+				if end > arrLen {
+					end = arrLen
+				}
+
 				if start > end {
 					start = end
 				}
-				cur = &arrayNode{baseNode: a.baseNode, children: a.children[start:end]}
+
+				newArr := NewArrayNode(a, nil, a.GetFuncs())
+				newArr.(*arrayNode).value = a.value[start:end]
+				newArr.(*arrayNode).isDirty = true
+				cur = newArr
 			} else {
 				return newInvalidNode(fmt.Errorf("not an array for slice access"))
 			}
-		case core.OpFunc:
+		case OpWildcard:
+			results := make([]core.Node, 0)
+			if o, ok := cur.(*objectNode); ok {
+				o.lazyParse()
+				for _, v := range o.value {
+					results = append(results, v)
+				}
+			} else if a, ok := cur.(*arrayNode); ok {
+				a.lazyParse()
+				results = a.value
+			}
+			newArr := NewArrayNode(cur, nil, cur.GetFuncs())
+			newArr.(*arrayNode).value = results
+			newArr.(*arrayNode).isDirty = true
+			cur = newArr
+		case OpFunc:
 			name := t.Value.(string)
 			cur = cur.CallFunc(name)
-		case core.OpRecursive:
-			// Handle recursive descent
+		case OpRecursive:
 			key := t.Value.(string)
 			cur = recursiveSearch(cur, key)
-		case core.OpParent:
-			// Handle parent navigation
-			// Try to get parent from different node types
-			var parent core.Node
-			found := false
-
-			// Try object node
-			if on, ok := cur.(*objectNode); ok && on.parent != nil {
-				parent = on.parent
-				found = true
-			} else if an, ok := cur.(*arrayNode); ok && an.parent != nil {
-				// Try array node
-				parent = an.parent
-				found = true
-			} else if bn, ok := cur.(*baseNode); ok && bn.parent != nil {
-				// Try base node
-				parent = bn.parent
-				found = true
-			} else if pn, ok := cur.(interface{ GetParent() core.Node }); ok {
-				// Try interface with GetParent method
-				parent = pn.GetParent()
-				if parent != nil {
-					found = true
-				}
-			}
-
-			if found {
-				cur = parent
+		case OpParent:
+			if p := cur.Parent(); p != nil {
+				cur = p
 			} else {
-				return newInvalidNode(fmt.Errorf("no parent node available"))
+				return newInvalidNode(fmt.Errorf("no parent node available for node %v", cur.Raw()))
 			}
 		default:
 			return newInvalidNode(fmt.Errorf("unsupported op"))

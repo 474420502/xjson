@@ -47,7 +47,7 @@ func main() {
 		fmt.Printf("Error getting book title: %v\n", bookTitle.Error())
 	} else {
 		fmt.Printf("Book title: %s\n", bookTitle.String())
-		
+
 		// Navigate back to the parent (the book object)
 		parent := bookTitle.Query("../")
 		if parent.Error() != nil {
@@ -66,4 +66,26 @@ func main() {
 	} else {
 		fmt.Printf("Found prices: %v\n", allPrices.Array())
 	}
+
+	// Additional check mirroring wildcard-on-array test
+	dataRoot, _ := xjson.Parse(`{"data": [{"id": 1}, {"id": 2}]}`)
+	dataItems := dataRoot.Query("/data/*")
+	fmt.Println("Wildcard /data/* -> len:", dataItems.Len(), "type:", dataItems.Type())
+	fmt.Println("First id:", dataItems.Query("0/id").Int(), "err:", dataItems.Query("0/id").Error())
+
+	// Path functions
+	fmt.Println("\n=== Testing Path Functions ===")
+	booksRoot, _ := xjson.Parse(`{"books": [
+		{"title": "Moby Dick", "price": 8.99},
+		{"title": "Clean Code", "price": 29.99},
+		{"title": "The Hobbit", "price": 12.99}
+	]}`)
+	booksRoot.RegisterFunc("cheap", func(n xjson.Node) xjson.Node {
+		return n.Filter(func(child xjson.Node) bool {
+			price, ok := child.Get("price").RawFloat()
+			return ok && price < 20
+		})
+	})
+	cheapTitles := booksRoot.Query("/books[@cheap]/title")
+	fmt.Println("cheapTitles len:", cheapTitles.Len(), "strings:", cheapTitles.Strings(), "err:", cheapTitles.Error())
 }

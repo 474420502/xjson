@@ -1,55 +1,45 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
+	"strconv"
 
 	"github.com/474420502/xjson/internal/core"
 )
 
 type parser struct {
-	raw   []byte
+	data  []byte
 	pos   int
 	funcs *map[string]core.UnaryPathFunc
 }
 
-func newParser(data []byte) *parser {
-	// Initialize funcs map for the entire parsing session
-	funcs := make(map[string]core.UnaryPathFunc)
-	return &parser{
-		raw:   data,
-		pos:   0,
-		funcs: &funcs,
-	}
+func newParser(data []byte, funcs *map[string]core.UnaryPathFunc) *parser {
+	return &parser{data: data, funcs: funcs}
 }
 
-// Parse is the main entry point for the internal parser.
 func (p *parser) Parse() (core.Node, error) {
 	p.skipWhitespace()
-	if p.pos >= len(p.raw) {
+	if p.pos >= len(p.data) {
 		return nil, fmt.Errorf("empty json")
 	}
-
-	value := p.parseValue(nil)
-	if value.Error() != nil {
-		return nil, value.Error()
+	n := p.doParse(nil)
+	if !n.IsValid() {
+		return nil, n.Error()
 	}
-
-	p.skipWhitespace()
-	if p.pos < len(p.raw) {
-		return nil, fmt.Errorf("trailing data found at position %d", p.pos)
-	}
-
-	return value, nil
+	return n, nil
 }
 
 func (p *parser) parseValue(parent core.Node) core.Node {
 	p.skipWhitespace()
-
-	if p.pos >= len(p.raw) {
+	if p.pos >= len(p.data) {
 		return newInvalidNode(fmt.Errorf("unexpected end of json"))
 	}
+	return p.doParse(parent)
+}
 
-	switch p.raw[p.pos] {
+func (p *parser) doParse(parent core.Node) core.Node {
+	switch p.data[p.pos] {
 	case '{':
 		return p.parseObject(parent)
 	case '[':
@@ -62,149 +52,240 @@ func (p *parser) parseValue(parent core.Node) core.Node {
 		return p.parseNull(parent)
 	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		return p.parseNumber(parent)
-	default:
-		return newInvalidNode(fmt.Errorf("invalid character '%c' looking for beginning of value", p.raw[p.pos]))
 	}
+	return newInvalidNode(fmt.Errorf("invalid character '%c' looking for beginning of value", p.data[p.pos]))
 }
 
 func (p *parser) parseObject(parent core.Node) core.Node {
 	start := p.pos
-	p.pos++ // consume '{'
-	level := 1
-	for p.pos < len(p.raw) && level > 0 {
-		switch p.raw[p.pos] {
-		case '{':
-			level++
-		case '}':
-			level--
-		case '"': // Skip strings
+	p.pos++ // skip '{'
+	p.skipWhitespace()
+
+	node := NewObjectNode(parent, nil, p.funcs).(*objectNode)
+	node.isDirty = true
+
+	for p.pos < len(p.data) {
+		if p.data[p.pos] == '}' {
 			p.pos++
-			for p.pos < len(p.raw) {
-				if p.raw[p.pos] == '\\' {
-					p.pos++
-				} else if p.raw[p.pos] == '"' {
-					break
-				}
-				p.pos++
-			}
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			return node
 		}
-		p.pos++
+
+		keyNode := p.parseString(node)
+		if !keyNode.IsValid() {
+			return keyNode
+		}
+		key, _ := keyNode.RawString()
+
+		p.skipWhitespace()
+		if p.pos >= len(p.data) || p.data[p.pos] != ':' {
+			return newInvalidNode(fmt.Errorf("missing ':' after object key"))
+		}
+		p.pos++ // skip ':'
+
+		valueNode := p.parseValue(node)
+		if !valueNode.IsValid() {
+			return valueNode
+		}
+		node.value[key] = valueNode
+
+		p.skipWhitespace()
+		if p.data[p.pos] == '}' {
+			p.pos++
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			return node
+		}
+
+		if p.data[p.pos] != ',' {
+			return newInvalidNode(fmt.Errorf("missing ',' after object value"))
+		}
+		p.pos++ // skip ','
+		p.skipWhitespace()
 	}
 
-	if level != 0 {
-		return newInvalidNode(fmt.Errorf("unbalanced curly braces"))
-	}
-	return newObjectNode(p.raw, start, p.pos, parent, p.funcs)
+	return newInvalidNode(fmt.Errorf("unterminated object"))
 }
 
 func (p *parser) parseArray(parent core.Node) core.Node {
 	start := p.pos
-	p.pos++ // consume '['
-	level := 1
-	for p.pos < len(p.raw) && level > 0 {
-		switch p.raw[p.pos] {
-		case '[':
-			level++
-		case ']':
-			level--
-		case '"': // Skip strings
+	p.pos++ // skip '['
+	p.skipWhitespace()
+
+	node := NewArrayNode(parent, nil, p.funcs).(*arrayNode)
+	node.isDirty = true
+
+	for p.pos < len(p.data) {
+		if p.data[p.pos] == ']' {
 			p.pos++
-			for p.pos < len(p.raw) {
-				if p.raw[p.pos] == '\\' {
-					p.pos++
-				} else if p.raw[p.pos] == '"' {
-					break
-				}
-				p.pos++
-			}
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			return node
 		}
-		p.pos++
+
+		valueNode := p.parseValue(node)
+		if !valueNode.IsValid() {
+			return valueNode
+		}
+		node.value = append(node.value, valueNode)
+
+		p.skipWhitespace()
+		if p.data[p.pos] == ']' {
+			p.pos++
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			return node
+		}
+
+		if p.data[p.pos] != ',' {
+			return newInvalidNode(fmt.Errorf("missing ',' after array value"))
+		}
+		p.pos++ // skip ','
+		p.skipWhitespace()
 	}
-	if level != 0 {
-		return newInvalidNode(fmt.Errorf("unbalanced square brackets"))
-	}
-	return newArrayNode(p.raw, start, p.pos, parent, p.funcs)
+	return newInvalidNode(fmt.Errorf("unterminated array"))
 }
 
 func (p *parser) parseString(parent core.Node) core.Node {
-	p.pos++ // consume opening quote
 	start := p.pos
-	var val []byte
-	for p.pos < len(p.raw) {
-		b := p.raw[p.pos]
-		if b == '\\' {
-			p.pos++
-			if p.pos >= len(p.raw) {
-				return newInvalidNode(fmt.Errorf("unexpected end of input after backslash"))
+	p.pos++ // skip '"'
+	end := -1
+	for i := p.pos; i < len(p.data); i++ {
+		if p.data[i] == '"' {
+			isEscaped := i > 0 && p.data[i-1] == '\\'
+			if !isEscaped {
+				end = i
+				break
 			}
-			// This is a simplified unescape. A full implementation would handle \uXXXX, etc.
-			val = append(val, p.raw[p.pos])
-			p.pos++
-		} else if b == '"' {
-			end := p.pos
-			p.pos++ // consume closing quote
-			// The `value` field should contain the unescaped string.
-			// The `raw` slice still points to the original data with escape sequences.
-			return &stringNode{
-				baseNode: newBaseNode(p.raw, start, end, parent, p.funcs),
-				value:    string(val),
-			}
-		} else {
-			val = append(val, b)
-			p.pos++
 		}
 	}
-	return newInvalidNode(fmt.Errorf("unterminated string"))
+
+	if end == -1 {
+		return newInvalidNode(fmt.Errorf("unterminated string"))
+	}
+	p.pos = end + 1
+	raw := p.data[start:p.pos]
+	val, err := unescape(p.data[start+1 : end])
+	if err != nil {
+		return newInvalidNode(err)
+	}
+
+	node := NewStringNode(parent, string(val), p.funcs).(*stringNode)
+	node.raw = raw
+	node.start = 0
+	node.end = len(raw)
+	return node
 }
 
 func (p *parser) parseNumber(parent core.Node) core.Node {
 	start := p.pos
-	for p.pos < len(p.raw) {
-		b := p.raw[p.pos]
-		if (b >= '0' && b <= '9') || b == '.' || b == 'e' || b == 'E' || b == '-' || b == '+' {
+	for p.pos < len(p.data) {
+		c := p.data[p.pos]
+		if (c < '0' || c > '9') && c != '.' && c != 'e' && c != 'E' && c != '+' && c != '-' {
+			break
+		}
+		p.pos++
+	}
+	raw := p.data[start:p.pos]
+	n := NewNumberNode(parent, raw, p.funcs).(*numberNode)
+	n.start = 0
+	n.end = len(raw)
+	return n
+}
+
+func (p *parser) parseBool(parent core.Node) core.Node {
+	if bytes.HasPrefix(p.data[p.pos:], []byte("true")) {
+		raw := p.data[p.pos : p.pos+4]
+		p.pos += 4
+		node := NewBoolNode(parent, true, p.funcs).(*boolNode)
+		node.raw = raw
+		node.start = 0
+		node.end = len(raw)
+		return node
+	}
+	if bytes.HasPrefix(p.data[p.pos:], []byte("false")) {
+		raw := p.data[p.pos : p.pos+5]
+		p.pos += 5
+		node := NewBoolNode(parent, false, p.funcs).(*boolNode)
+		node.raw = raw
+		node.start = 0
+		node.end = len(raw)
+		return node
+	}
+	return newInvalidNode(fmt.Errorf("invalid boolean"))
+}
+
+func (p *parser) parseNull(parent core.Node) core.Node {
+	if bytes.HasPrefix(p.data[p.pos:], []byte("null")) {
+		raw := p.data[p.pos : p.pos+4]
+		p.pos += 4
+		node := NewNullNode(parent, p.funcs).(*nullNode)
+		node.raw = raw
+		node.start = 0
+		node.end = len(raw)
+		return node
+	}
+	return newInvalidNode(fmt.Errorf("invalid null"))
+}
+
+func (p *parser) skipWhitespace() {
+	for p.pos < len(p.data) {
+		c := p.data[p.pos]
+		if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
 			p.pos++
 		} else {
 			break
 		}
 	}
-	end := p.pos
-	return &numberNode{baseNode: newBaseNode(p.raw, start, end, parent, p.funcs)}
 }
 
-func (p *parser) parseBool(parent core.Node) core.Node {
-	start := p.pos
-	var val bool
-	if p.pos+4 <= len(p.raw) && string(p.raw[p.pos:p.pos+4]) == "true" {
-		p.pos += 4
-		val = true
-	} else if p.pos+5 <= len(p.raw) && string(p.raw[p.pos:p.pos+5]) == "false" {
-		p.pos += 5
-		val = false
-	} else {
-		return newInvalidNode(fmt.Errorf("invalid boolean literal at pos %d", p.pos))
+func unescape(data []byte) ([]byte, error) {
+	if bytes.IndexByte(data, '\\') == -1 {
+		return data, nil
 	}
-	return &boolNode{
-		baseNode: newBaseNode(p.raw, start, p.pos, parent, p.funcs),
-		value:    val,
-	}
-}
-
-func (p *parser) parseNull(parent core.Node) core.Node {
-	start := p.pos
-	if p.pos+4 > len(p.raw) || string(p.raw[p.pos:p.pos+4]) != "null" {
-		return newInvalidNode(fmt.Errorf("invalid null literal at pos %d", p.pos))
-	}
-	p.pos += 4
-	return &nullNode{baseNode: newBaseNode(p.raw, start, p.pos, parent, p.funcs)}
-}
-
-func (p *parser) skipWhitespace() {
-	for p.pos < len(p.raw) {
-		switch p.raw[p.pos] {
-		case ' ', '\t', '\n', '\r':
-			p.pos++
-		default:
-			return
+	var buf bytes.Buffer
+	i := 0
+	for i < len(data) {
+		if data[i] == '\\' {
+			i++
+			if i >= len(data) {
+				return nil, fmt.Errorf("invalid escape sequence at end of string")
+			}
+			switch data[i] {
+			case '"', '\\', '/':
+				buf.WriteByte(data[i])
+			case 'b':
+				buf.WriteByte('\b')
+			case 'f':
+				buf.WriteByte('\f')
+			case 'n':
+				buf.WriteByte('\n')
+			case 'r':
+				buf.WriteByte('\r')
+			case 't':
+				buf.WriteByte('\t')
+			case 'u':
+				if i+4 >= len(data) {
+					return nil, fmt.Errorf("invalid unicode escape sequence: not enough digits")
+				}
+				val, err := strconv.ParseInt(string(data[i+1:i+5]), 16, 32)
+				if err != nil {
+					return nil, fmt.Errorf("invalid unicode escape sequence: %w", err)
+				}
+				buf.WriteRune(rune(val))
+				i += 4
+			default:
+				return nil, fmt.Errorf("invalid escape character: %c", data[i])
+			}
+		} else {
+			buf.WriteByte(data[i])
 		}
+		i++
 	}
+	return buf.Bytes(), nil
 }

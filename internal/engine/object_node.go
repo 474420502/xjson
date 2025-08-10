@@ -1,284 +1,198 @@
 package engine
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/474420502/xjson/internal/core"
 )
 
-// objectNode represents a JSON object.
 type objectNode struct {
 	baseNode
-	children map[string]core.Node
-}
-
-// newObjectNode creates a new object node.
-// Note: children are parsed lazily.
-func newObjectNode(raw []byte, start, end int, parent core.Node, funcs *map[string]core.UnaryPathFunc) *objectNode {
-	return &objectNode{
-		baseNode: newBaseNode(raw, start, end, parent, funcs),
-	}
+	value      map[string]core.Node
+	sortedKeys []string
+	isDirty    bool
 }
 
 func (n *objectNode) Type() core.NodeType {
 	return core.Object
 }
 
-func (n *objectNode) Query(path string) core.Node {
-	if n.err != nil {
-		return newInvalidNode(n.err)
-	}
-	return applySimpleQuery(n, path)
-}
-
-// ensureParsed parses the children of the object if they haven't been parsed yet.
-func (n *objectNode) ensureParsed() {
-	if n.err != nil || n.children != nil {
-		return
-	}
-
-	p := &parser{
-		raw:   n.raw,
-		pos:   n.start + 1, // Skip '{'
-		funcs: n.funcs,
-	}
-
-	n.children = make(map[string]core.Node)
-
-	for p.pos < n.end-1 {
-		p.skipWhitespace()
-
-		// Key
-		keyNode := p.parseString(n)
-		if keyNode.Error() != nil {
-			n.setError(keyNode.Error())
-			return
-		}
-
-		p.skipWhitespace()
-
-		// Colon
-		if p.pos >= n.end-1 || p.raw[p.pos] != ':' {
-			n.setError(fmt.Errorf("expecting : after object key at pos %d", p.pos))
-			return
-		}
-		p.pos++ // consume ':'
-		p.skipWhitespace()
-
-		// Value
-		valueNode := p.parseValue(n)
-		if valueNode.Error() != nil {
-			n.setError(valueNode.Error())
-			return
-		}
-		n.children[keyNode.MustString()] = valueNode
-
-		p.skipWhitespace()
-		if p.pos < n.end-1 && p.raw[p.pos] == ',' {
-			p.pos++
-			p.skipWhitespace()
-		} else {
-			break // No comma, should be end of object
-		}
-	}
-
-	p.skipWhitespace()
-	if p.pos > n.end-1 {
-		n.setError(fmt.Errorf("object not properly terminated, expecting } at pos %d", n.end-1))
-	}
+func (n *objectNode) Len() int {
+	n.lazyParse()
+	return len(n.value)
 }
 
 func (n *objectNode) Get(key string) core.Node {
 	if n.err != nil {
-		return newInvalidNode(n.err)
+		return n
 	}
-	n.ensureParsed()
-
-	child, ok := n.children[key]
-	if !ok {
-		return newInvalidNode(fmt.Errorf("key not found: %s", key))
+	n.lazyParse()
+	if child, ok := n.value[key]; ok {
+		return child
 	}
-	// Set the parent of the child to this node
-	if c, ok := child.(*objectNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*arrayNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*stringNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*numberNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*boolNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*nullNode); ok {
-		c.parent = n
-	}
-	return child
+	return newInvalidNode(fmt.Errorf("key not found: %s", key))
 }
 
 func (n *objectNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {
 	if n.err != nil {
 		return
 	}
-	n.ensureParsed()
-	for k, v := range n.children {
-		fn(k, v)
+	n.lazyParse()
+	if n.sortedKeys == nil {
+		keys := make([]string, 0, len(n.value))
+		for k := range n.value {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		n.sortedKeys = keys
 	}
-}
 
-func (n *objectNode) Len() int {
-	if n.err != nil {
-		return 0
+	for _, k := range n.sortedKeys {
+		fn(k, n.value[k])
 	}
-	n.ensureParsed()
-	return len(n.children)
-}
-
-func (n *objectNode) AsMap() map[string]core.Node {
-	if n.err != nil {
-		return nil
-	}
-	n.ensureParsed()
-	return n.children
-}
-
-func (n *objectNode) MustAsMap() map[string]core.Node {
-	if n.err != nil {
-		panic(n.err)
-	}
-	n.ensureParsed()
-	return n.children
-}
-
-// Keys returns the object's keys in arbitrary order.
-func (n *objectNode) Keys() []string {
-	if n.err != nil {
-		return nil
-	}
-	n.ensureParsed()
-	keys := make([]string, 0, len(n.children))
-	for k := range n.children {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-func (n *objectNode) Interface() interface{} {
-	if n.err != nil {
-		return nil
-	}
-	n.ensureParsed()
-	m := make(map[string]interface{})
-	for k, v := range n.children {
-		m[k] = v.Interface()
-	}
-	return m
-}
-
-func (n *objectNode) String() string {
-	n.ensureParsed()
-	b, err := json.Marshal(n.Interface())
-	if err != nil {
-		return n.baseNode.String()
-	}
-	return string(b)
-}
-
-func (n *objectNode) SetValue(value interface{}) core.Node {
-	if n.err != nil {
-		return n
-	}
-	newChildren, ok := value.(map[string]core.Node)
-	if !ok {
-		n.setError(fmt.Errorf("SetValue on object requires a map[string]core.Node"))
-		return n
-	}
-	n.children = newChildren
-	return n
 }
 
 func (n *objectNode) Set(key string, value interface{}) core.Node {
 	if n.err != nil {
 		return n
 	}
-	n.ensureParsed()
-	child, err := NewNodeFromInterface(value)
-	if err != nil {
-		return newInvalidNode(err)
+	n.lazyParse()
+	n.isDirty = true
+
+	// Update sorted keys
+	found := false
+	for _, k := range n.sortedKeys {
+		if k == key {
+			found = true
+			break
+		}
 	}
-	if n.children == nil {
-		n.children = make(map[string]core.Node)
+	if !found {
+		n.sortedKeys = append(n.sortedKeys, key)
+		sort.Strings(n.sortedKeys)
 	}
-	// Set parent of the new child
-	if c, ok := child.(*objectNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*arrayNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*stringNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*numberNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*boolNode); ok {
-		c.parent = n
-	} else if c, ok := child.(*nullNode); ok {
-		c.parent = n
+
+	child := NewNodeFromInterface(n, value, n.funcs)
+	if !child.IsValid() {
+		n.setError(child.Error())
+		return n
 	}
-	n.children[key] = child
+	n.value[key] = child
+
 	return n
 }
 
-func (n *objectNode) RegisterFunc(name string, fn core.UnaryPathFunc) core.Node {
+func (n *objectNode) AsMap() map[string]core.Node {
 	if n.err != nil {
-		return newInvalidNode(n.err)
+		return nil
 	}
-	if n.funcs == nil || *n.funcs == nil {
-		m := make(map[string]core.UnaryPathFunc)
-		n.funcs = &m
-	}
-	(*n.funcs)[name] = fn
-	return n
+	n.lazyParse()
+	return n.value
 }
 
-func (n *objectNode) RemoveFunc(name string) core.Node {
+func (n *objectNode) MustAsMap() map[string]core.Node {
 	if n.err != nil {
-		return newInvalidNode(n.err)
+		panic(n.err)
 	}
-	if n.funcs != nil && *n.funcs != nil {
-		delete(*n.funcs, name)
-	}
-	return n
+	n.lazyParse()
+	return n.value
 }
 
-func (n *objectNode) CallFunc(name string) core.Node {
+func (n *objectNode) String() string {
 	if n.err != nil {
-		return newInvalidNode(n.err)
+		return ""
 	}
-	if n.funcs == nil || *n.funcs == nil {
-		return newInvalidNode(fmt.Errorf("func not found: %s", name))
+	n.lazyParse()
+	if !n.isDirty && n.Raw() != "" {
+		return n.Raw()
 	}
-	if fn, ok := (*n.funcs)[name]; ok && fn != nil {
-		return fn(n)
+
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	if n.sortedKeys == nil {
+		keys := make([]string, 0, len(n.value))
+		for k := range n.value {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		n.sortedKeys = keys
 	}
-	return newInvalidNode(fmt.Errorf("func not found: %s", name))
+	for i, k := range n.sortedKeys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteString(fmt.Sprintf("%q:%s", k, n.value[k].String()))
+	}
+	buf.WriteByte('}')
+	return buf.String()
 }
 
-func (n *objectNode) Apply(fn core.PathFunc) core.Node {
+func (n *objectNode) Keys() []string {
 	if n.err != nil {
-		return newInvalidNode(n.err)
+		return nil
 	}
-	switch f := fn.(type) {
-	case core.UnaryPathFunc:
-		return f(n)
-	case core.PredicateFunc:
-		return newInvalidNode(fmt.Errorf("predicate apply requires array node"))
-	case core.TransformFunc:
-		return newInvalidNode(fmt.Errorf("transform apply requires array node"))
-	default:
-		return newInvalidNode(fmt.Errorf("unsupported function type"))
+	n.lazyParse()
+	if n.sortedKeys == nil {
+		keys := make([]string, 0, len(n.value))
+		for k := range n.value {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		n.sortedKeys = keys
+	}
+	return n.sortedKeys
+}
+
+func (n *objectNode) Interface() interface{} {
+	if n.err != nil {
+		return nil
+	}
+	n.lazyParse()
+	m := make(map[string]interface{})
+	for k, v := range n.value {
+		m[k] = v.Interface()
+	}
+	return m
+}
+
+func (n *objectNode) lazyParse() {
+	if n.parsed.Load() || n.isDirty {
+		return
+	}
+	if len(n.raw) == 0 { // constructed node
+		n.parsed.Store(true)
+		return
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.parsed.Load() || n.isDirty {
+		return
+	}
+	defer n.parsed.Store(true)
+
+	p := newParser(n.raw, n.funcs)
+	// start from the beginning of raw to parse the object
+	p.pos = 0
+	parsedNode := p.parseObject(n)
+	if err := parsedNode.Error(); err != nil {
+		n.err = err
+		return
+	}
+
+	// copy values
+	if cast, ok := parsedNode.(*objectNode); ok {
+		n.value = cast.value
 	}
 }
 
-// GetParent returns the parent node
-func (n *objectNode) GetParent() core.Node {
-	return n.parent
+func (n *objectNode) addChild(key string, child core.Node) {
+	if n.value == nil {
+		n.value = make(map[string]core.Node)
+	}
+	child.(*baseNode).parent = n
+	n.value[key] = child
 }
