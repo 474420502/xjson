@@ -82,7 +82,22 @@ func (n *arrayNode) Append(value interface{}) core.Node {
 		return n
 	}
 	n.lazyParse()
-	n.isDirty = true
+	n.isDirty = true // Mark as dirty so String() will regenerate
+	
+	// Also mark all ancestors as dirty to ensure String() regeneration
+	current := n.parent
+	for current != nil {
+		if obj, ok := current.(*objectNode); ok {
+			obj.isDirty = true
+			current = obj.parent
+		} else if arr, ok := current.(*arrayNode); ok {
+			arr.isDirty = true
+			current = arr.parent
+		} else {
+			break
+		}
+	}
+
 	child := NewNodeFromInterface(n, value, n.funcs)
 	if !child.IsValid() {
 		n.setError(child.Error())
@@ -116,6 +131,7 @@ func (n *arrayNode) String() string {
 		return ""
 	}
 	n.lazyParse()
+	// 如果未修改并且存在原始数据，则返回原始数据
 	if !n.isDirty && n.Raw() != "" {
 		return n.Raw()
 	}
@@ -124,11 +140,14 @@ func (n *arrayNode) String() string {
 	buf.WriteByte('[')
 	for i, v := range n.value {
 		if i > 0 {
+			// 在每个元素之间插入逗号
 			buf.WriteByte(',')
 		}
+		// 将每个元素转换为字符串并添加到缓冲区
 		buf.WriteString(v.String())
 	}
 	buf.WriteByte(']')
+	// 返回构建好的字符串表示
 	return buf.String()
 }
 
@@ -164,7 +183,12 @@ func (n *arrayNode) lazyParse() {
 	p := newParser(n.raw, n.funcs)
 	// start from the beginning of raw to parse the array
 	p.pos = 0
-	parsedNode := p.parseArray(n)
+	// For root node, pass nil as parent to avoid setting root as its own parent
+	var parent core.Node
+	if n.parent != nil {
+		parent = n
+	}
+	parsedNode := p.parseArray(parent)
 	if err := parsedNode.Error(); err != nil {
 		n.err = err
 		return

@@ -25,7 +25,7 @@ func main() {
 	}`
 
 	// Parse JSON
-	root, err := xjson.Parse(data)
+	root, err := xjson.MustParse(data)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,14 +68,14 @@ func main() {
 	}
 
 	// Additional check mirroring wildcard-on-array test
-	dataRoot, _ := xjson.Parse(`{"data": [{"id": 1}, {"id": 2}]}`)
+	dataRoot, _ := xjson.MustParse(`{"data": [{"id": 1}, {"id": 2}]}`)
 	dataItems := dataRoot.Query("/data/*")
 	fmt.Println("Wildcard /data/* -> len:", dataItems.Len(), "type:", dataItems.Type())
 	fmt.Println("First id:", dataItems.Query("0/id").Int(), "err:", dataItems.Query("0/id").Error())
 
 	// Path functions
 	fmt.Println("\n=== Testing Path Functions ===")
-	booksRoot, _ := xjson.Parse(`{"books": [
+	booksRoot, _ := xjson.MustParse(`{"books": [
 		{"title": "Moby Dick", "price": 8.99},
 		{"title": "Clean Code", "price": 29.99},
 		{"title": "The Hobbit", "price": 12.99}

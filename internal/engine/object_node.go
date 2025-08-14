@@ -29,6 +29,7 @@ func (n *objectNode) Get(key string) core.Node {
 		return n
 	}
 	n.lazyParse()
+	
 	if child, ok := n.value[key]; ok {
 		return child
 	}
@@ -59,7 +60,21 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 		return n
 	}
 	n.lazyParse()
-	n.isDirty = true
+	n.isDirty = true // Mark as dirty so String() will regenerate
+
+	// Also mark all ancestors as dirty to ensure String() regeneration
+	current := n.parent
+	for current != nil {
+		if obj, ok := current.(*objectNode); ok {
+			obj.isDirty = true
+			current = obj.parent
+		} else if arr, ok := current.(*arrayNode); ok {
+			arr.isDirty = true
+			current = arr.parent
+		} else {
+			break
+		}
+	}
 
 	// Update sorted keys
 	found := false
@@ -84,6 +99,19 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 	return n
 }
 
+// 新增辅助方法来避免重复代码
+func (n *objectNode) containsKey(key string) bool {
+	if n.sortedKeys == nil {
+		return false
+	}
+	for _, k := range n.sortedKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 func (n *objectNode) AsMap() map[string]core.Node {
 	if n.err != nil {
 		return nil
@@ -106,7 +134,26 @@ func (n *objectNode) String() string {
 	}
 	n.lazyParse()
 	if !n.isDirty && n.Raw() != "" {
-		return n.Raw()
+		// Check if any child node is dirty
+		hasDirtyChild := false
+		for _, child := range n.value {
+			switch c := child.(type) {
+			case *objectNode:
+				if c.isDirty {
+					hasDirtyChild = true
+					break
+				}
+			case *arrayNode:
+				if c.isDirty {
+					hasDirtyChild = true
+					break
+				}
+			}
+		}
+		
+		if !hasDirtyChild {
+			return n.Raw()
+		}
 	}
 
 	var buf bytes.Buffer
@@ -177,7 +224,12 @@ func (n *objectNode) lazyParse() {
 	p := newParser(n.raw, n.funcs)
 	// start from the beginning of raw to parse the object
 	p.pos = 0
-	parsedNode := p.parseObject(n)
+	// For root node, pass nil as parent to avoid setting root as its own parent
+	var parent core.Node
+	if n.parent != nil {
+		parent = n
+	}
+	parsedNode := p.parseObject(parent)
 	if err := parsedNode.Error(); err != nil {
 		n.err = err
 		return
@@ -186,6 +238,8 @@ func (n *objectNode) lazyParse() {
 	// copy values
 	if cast, ok := parsedNode.(*objectNode); ok {
 		n.value = cast.value
+		// Also copy sortedKeys to maintain order
+		n.sortedKeys = cast.sortedKeys
 	}
 }
 

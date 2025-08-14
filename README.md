@@ -21,7 +21,7 @@ XJSON provides both simple and advanced usage patterns. Here are examples for bo
 
 XJSON's main purpose is to make JSON path querying easy and intuitive. Here are various examples of path syntax usage:
 
-```go
+```
 package main
 
 import (
@@ -83,7 +83,7 @@ func main() {
 		]
 	}`
 
-	// Parse JSON
+	// Parse JSON with lazy parsing (nodes parsed on demand)
 	root, err := xjson.Parse(data)
 	if err != nil {
 		panic(err)
@@ -143,7 +143,7 @@ func main() {
 
 For different types of path operations:
 
-```go
+```
 func pathExamples() {
 	data := `{
 		"users": [
@@ -208,7 +208,7 @@ func pathExamples() {
 
 For working with special key names:
 
-```go
+```
 func specialKeysExample() {
 	data := `{
 		"user-data": {
@@ -260,7 +260,7 @@ func specialKeysExample() {
 
 For array operations:
 
-```go
+```
 func arrayExample() {
 	data := `{
 		"users": [
@@ -293,7 +293,7 @@ func arrayExample() {
 
 For complex data processing with functions:
 
-```go
+```
 func advancedExample() {
 	data := `{
 		"store": {
@@ -309,7 +309,8 @@ func advancedExample() {
 		}
 	}`
 
-	root, err := xjson.Parse(data)
+	// Parse JSON with full eager parsing
+	root, err := xjson.MustParse(data)
 	if err != nil {
 		panic(err)
 	}
@@ -368,7 +369,7 @@ func advancedExample() {
 
 For data modification:
 
-```go
+```
 func modificationExample() {
 	data := `{
 		"users": [
@@ -496,7 +497,45 @@ if err := root.Error(); err != nil {
 }
 ```
 
-### 4. Path Query Syntax
+### 4. Parsing Methods
+
+**XJSON provides two parsing methods with different behaviors:**
+
+#### Lazy Parsing with Parse()
+
+The [Parse()](file:///home/eson/workspace/xjson/xjson.go#L45-L65) function creates a lazy-parsed tree where nodes are parsed on-demand when accessed:
+
+```go
+// Nodes are not immediately parsed - they will be parsed when accessed
+root, err := xjson.Parse(data)
+if err != nil {
+    panic(err)
+}
+
+// Only when accessing data, the relevant nodes are parsed
+title := root.Query("/store/books[0]/title").String()
+```
+
+This approach is more memory-efficient for large JSON documents when you only need to access parts of the data.
+
+#### Eager Parsing with MustParse()
+
+The [MustParse()](file:///home/eson/workspace/xjson/xjson.go#L194-L196) function parses the entire JSON tree immediately:
+
+```go
+// All nodes are parsed immediately
+root, err := xjson.MustParse(data)
+if err != nil {
+    panic(err)
+}
+
+// No additional parsing needed when accessing data
+title := root.Query("/store/books[0]/title").String()
+```
+
+This approach is useful when you know you'll be accessing most of the data in the JSON document, or when you want to validate the entire document upfront.
+
+### 5. Path Query Syntax
 
 XJSON provides a powerful and flexible path query syntax that supports various data access patterns from simple to complex.
 
@@ -919,11 +958,22 @@ processedUsers := root.Query("/users[@withAvg]")
    }
    ```
 
+5. **Parsing Method Changes**:
+   
+   ```go
+   // New Parse method for lazy parsing (recommended for most use cases)
+   root, err := xjson.Parse(data)
+   
+   // MustParse method for eager parsing (full immediate parsing)
+   root, err := xjson.MustParse(data)
+   ```
+
 **Compatibility Notes:**
 
 - All existing query syntax continues to work
 - New features are fully backward compatible
 - Performance improvements do not affect existing code
+- The old `Parse` behavior is now provided by `MustParse`
 
 ## 📄 License
 

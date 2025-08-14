@@ -227,7 +227,7 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			key := t.Value.(string)
 			if a, ok := cur.(*arrayNode); ok {
 				results := make([]core.Node, 0)
-				a.lazyParse()
+				a.lazyParse() // 确保在访问前解析
 				for _, item := range a.value {
 					if item.Type() == core.Object {
 						res := item.Get(key)
@@ -256,7 +256,7 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			}
 		case OpSlice:
 			if a, ok := cur.(*arrayNode); ok {
-				a.lazyParse()
+				a.lazyParse() // 确保在访问前解析
 				s := t.Value.(slice)
 				arrLen := len(a.value)
 
@@ -295,12 +295,12 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 		case OpWildcard:
 			results := make([]core.Node, 0)
 			if o, ok := cur.(*objectNode); ok {
-				o.lazyParse()
+				o.lazyParse() // 确保在访问前解析
 				for _, v := range o.value {
 					results = append(results, v)
 				}
 			} else if a, ok := cur.(*arrayNode); ok {
-				a.lazyParse()
+				a.lazyParse() // 确保在访问前解析
 				results = a.value
 			}
 			newArr := NewArrayNode(cur, nil, cur.GetFuncs())
@@ -314,9 +314,10 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			key := t.Value.(string)
 			cur = recursiveSearch(cur, key)
 		case OpParent:
-			if p := cur.Parent(); p != nil {
+			if p := cur.Parent(); p != nil && p != cur {
 				cur = p
 			} else {
+				// No parent available or already at root, return invalid node for navigation above root
 				return newInvalidNode(fmt.Errorf("no parent node available for node %v", cur.Raw()))
 			}
 		default:

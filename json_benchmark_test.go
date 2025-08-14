@@ -61,13 +61,13 @@ func init() {
 // BenchmarkXJSONParse 衡量 xjson 的 JSON 解析性能
 func BenchmarkXJSONParse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _ = Parse(largeJSONData)
+		_, _ = MustParse(largeJSONData)
 	}
 }
 
 // BenchmarkXJSONQuery 衡量 xjson 的 JSON 查询性能
 func BenchmarkXJSONQuery(b *testing.B) {
-	doc, err := Parse(largeJSONData)
+	doc, err := MustParse(largeJSONData)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func BenchmarkXJSONQuery(b *testing.B) {
 
 // BenchmarkXJSONSet 衡量 xjson 的 Set 方法性能
 func BenchmarkXJSONSet(b *testing.B) {
-	doc, err := Parse(largeJSONData)
+	doc, err := MustParse(largeJSONData)
 	if err != nil {
 		b.Fatal(err)
 	}

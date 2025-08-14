@@ -37,7 +37,28 @@ type Node = core.Node
 
 // Parse parses a raw JSON string or bytes and returns the root Node.
 // This is the main entry point for using the XJSON library.
+// This function will parse the entire JSON tree eagerly.
 func Parse(data interface{}) (Node, error) {
+	var raw []byte
+	switch v := data.(type) {
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return nil, fmt.Errorf("unsupported data type: %T", data)
+	}
+
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty data")
+	}
+
+	return engine.MustParse(raw)
+}
+
+// MustParse parses a raw JSON string or bytes and returns the root Node.
+// This function creates a lazy-parsed tree where nodes are parsed on demand.
+func MustParse(data interface{}) (Node, error) {
 	var raw []byte
 	switch v := data.(type) {
 	case string:

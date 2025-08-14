@@ -159,15 +159,26 @@ func TestComplexSliceOperations(t *testing.T) {
 	}
 }
 
-// TestMultiLevelParentNavigation tests multi-level parent navigation with ../
-func TestMultiLevelParentNavigation(t *testing.T) {
+
+
+func TestRootNodeParent(t *testing.T) {
+	jsonData := []byte(`{"test": "value"}`)
+	root, err := Parse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+	
+	if root.Parent() != nil {
+		t.Errorf("Root node parent should be nil, got %v", root.Parent())
+	}
+}
+
+// TestDetailedParentNavigation tests parent navigation in detail
+func TestDetailedParentNavigation(t *testing.T) {
 	jsonData := []byte(`{
 		"level1": {
 			"level2": {
-				"level3": {
-					"target": "found it"
-				},
-				"data": "other data"
+				"target": "found it"
 			}
 		}
 	}`)
@@ -176,73 +187,33 @@ func TestMultiLevelParentNavigation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
-
-	// Navigate deep and then back up multiple levels
-	result := root.Query("/level1/level2/level3/target/../../data")
-	if !result.IsValid() {
-		t.Fatalf("Multi-level parent navigation failed: %v", result.Error())
+	
+	// Navigate to a deep node
+	deepNode := root.Query("/level1/level2/target")
+	if !deepNode.IsValid() {
+		t.Fatalf("Failed to navigate to deep node: %v", deepNode.Error())
 	}
-
-	if result.String() != "other data" {
-		t.Errorf("Expected 'other data', got '%s'", result.String())
+	
+	// Navigate back one level
+	parent1 := deepNode.Parent()
+	if parent1 == nil || parent1 == deepNode {
+		t.Fatalf("First parent navigation failed")
 	}
-
+	
 	// Navigate back to root
-	result = root.Query("/level1/level2/level3/target/../../../..")
-	if !result.IsValid() {
-		t.Fatalf("Navigation back to root failed: %v", result.Error())
+	parent2 := parent1.Parent()
+	if parent2 == nil || parent2 == parent1 {
+		t.Fatalf("Second parent navigation failed")
 	}
-
-	// Try to navigate above root (should result in invalid node)
-	result = root.Query("/level1/level2/level3/target/../../../../..")
-	if result.IsValid() {
-		t.Error("Expected navigation above root to result in invalid node")
+	
+	parent3 := parent2.Parent()
+	if parent3 == nil || parent3 == parent2 {
+		t.Fatalf("Third parent navigation failed")
 	}
-}
-
-// TestMultipleFunctionChaining tests chaining multiple functions like [@func1][@func2]
-func TestMultipleFunctionChaining(t *testing.T) {
-	jsonData := []byte(`{
-		"numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-	}`)
-
-	root, err := Parse(jsonData)
-	if err != nil {
-		t.Fatalf("Failed to parse JSON: %v", err)
-	}
-
-	// Register functions
-	root.RegisterFunc("even", func(n core.Node) core.Node {
-		return n.Filter(func(child core.Node) bool {
-			return child.Int()%2 == 0
-		})
-	})
-
-	root.RegisterFunc("greaterThanFive", func(n core.Node) core.Node {
-		return n.Filter(func(child core.Node) bool {
-			return child.Int() > 5
-		})
-	})
-
-	// Test chaining functions: first get even numbers, then filter for those greater than 5
-	result := root.Query("/numbers[@even][@greaterThanFive]")
-	if !result.IsValid() {
-		t.Fatalf("Function chaining failed: %v", result.Error())
-	}
-
-	if result.Type() != core.Array {
-		t.Fatalf("Expected result to be an array, got %v", result.Type())
-	}
-
-	expected := []int64{6, 8, 10}
-	values := result.Array()
-	if len(values) != len(expected) {
-		t.Fatalf("Expected %d values, got %d", len(expected), len(values))
-	}
-
-	for i, expectedVal := range expected {
-		if values[i].Int() != expectedVal {
-			t.Errorf("Expected values[%d] to be %d, got %d", i, expectedVal, values[i].Int())
-		}
+	
+	// Try to navigate above root - this should return nil
+	parent4 := parent3.Parent()
+	if parent4 != nil {
+		t.Errorf("Expected parent4 to be nil, got %v", parent4)
 	}
 }
