@@ -1,6 +1,9 @@
-# XJSON - 统一节点模型JSON处理器 (v0.1.0)
+# XJSON - 统一节点模型JSON处理器 (v0.2.0)
 
 **XJSON** **是一个强大的 Go JSON 处理库，采用完全统一的** **Node** **模型，支持路径函数、流式操作和灵活的查询语法。**
+
+## 🚀 性能提升
+
 
 ## ✨ 核心特性
 
@@ -210,52 +213,31 @@ func pathExamples() {
 
 ``go
 func specialKeysExample() {
-	data := `{
-		"user-data": {
-			"user.profile": {
-				"first.name": "John",
-				"last.name": "Doe"
-			},
-			"user.settings": {
-				"ui.theme": "dark",
-				"email.notifications": true
-			}
-		},
-		"api/v1/users": [
-			{
-				"id": 1,
-				"profile.data": {
-					"name": "Alice",
-					"contact-info": {
-						"email.address": "alice@example.com"
-					}
-				}
-			}
-		]
-	}`
+	data := `{ 		"user-data": { 			"user.profile": { 				"first.name": "John", 				"last.name": "Doe" 			}, 			"user.settings": { 				"ui.theme": "dark", 				"email.notifications": true 			} 		}, 		"api/v1/users": [ 			{ 				"id": 1, 				"profile.data": { 					"name": "Alice", 					"contact-info": { 						"email.address": "alice@example.com" 					} 				} 			} 		] 	}`
 
-	root, _ := xjson.Parse(data)
+    root, _ := xjson.Parse(data)
 
-	// 访问包含点号的键
+    // 访问包含点号的键
 	firstName := root.Query(`/['user-data']/['user.profile']/['first.name']`).String()
 	fmt.Println("名字:", firstName)
 
-	// 访问包含斜杠的键
+    // 访问包含斜杠的键
 	apiPath := root.Query(`/['api/v1/users']`).Len()
 	fmt.Println("API用户数量:", apiPath)
 
-	// 混合常规键和特殊键
+    // 混合常规键和特殊键
 	userName := root.Query(`/['api/v1/users'][0]/['profile.data']/name`).String()
 	fmt.Println("用户名:", userName)
 
-	// 使用特殊键的深层访问
+    // 使用特殊键的深层访问
 	email := root.Query(`/['api/v1/users'][0]/['profile.data']/['contact-info']/['email.address']`).String()
 	fmt.Println("邮箱:", email)
 
-	// 访问嵌套的特殊键
+    // 访问嵌套的特殊键
 	theme := root.Query(`/['user-data']/['user.settings']/['ui.theme']`).String()
 	fmt.Println("主题:", theme)
 }
+
 ```
 
 数组操作：
@@ -295,26 +277,14 @@ func arrayExample() {
 
 ``go
 func advancedExample() {
-	data := `{
-		"store": {
-			"books": [
-				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]},
-				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]},
-				{"title": "Go in Action", "price": 19.99, "tags": ["programming", "golang"]}
-			],
-			"electronics": [
-				{"name": "Laptop", "price": 999.99, "in_stock": true},
-				{"name": "Mouse", "price": 29.99, "in_stock": false}
-			]
-		}
-	}`
+	data := `{ 		"store": { 			"books": [ 				{"title": "Moby Dick", "price": 8.99, "tags": ["classic", "adventure"]}, 				{"title": "Clean Code", "price": 29.99, "tags": ["programming"]}, 				{"title": "Go in Action", "price": 19.99, "tags": ["programming", "golang"]} 			], 			"electronics": [ 				{"name": "Laptop", "price": 999.99, "in_stock": true}, 				{"name": "Mouse", "price": 29.99, "in_stock": false} 			] 		} 	}`
 
-	root, err := xjson.Parse(data)
+    root, err := xjson.Parse(data)
 	if err != nil {
 		panic(err)
 	}
 
-	// 注册自定义函数
+    // 注册自定义函数
 	root.RegisterFunc("cheap", func(n xjson.Node) xjson.Node {
 		return n.Filter(func(child xjson.Node) bool {
 			price, _ := child.Get("price").RawFloat()
@@ -330,25 +300,25 @@ func advancedExample() {
 		})
 	})
 
-	// 使用路径函数进行复杂查询
+    // 使用路径函数进行复杂查询
 	cheapBooks := root.Query("/store/books[@cheap]/title").Strings()
 	fmt.Println("便宜的书籍:", cheapBooks)
 
-	// 查找所有有库存的电子产品
+    // 查找所有有库存的电子产品
 	inStockItems := root.Query("/store/electronics[@inStock]/name").Strings()
 	fmt.Println("有库存的商品:", inStockItems)
 
-	// 查找编程类书籍
+    // 查找编程类书籍
 	progBooks := root.Query("/store/books[@programming]/title").Strings()
 	fmt.Println("编程类书籍:", progBooks)
 
-	// 使用递归下降查找所有价格
+    // 使用递归下降查找所有价格
 	allPrices := root.Query("//price").Map(func(n xjson.Node) interface{} {
 		price, _ := n.RawFloat()
 		return price
 	})
 
-	// 计算平均价格
+    // 计算平均价格
 	var sum float64
 	var count int
 	allPrices.ForEach(func(_ interface{}, priceNode xjson.Node) {
@@ -360,10 +330,11 @@ func advancedExample() {
 	avgPrice := sum / float64(count)
 	fmt.Printf("平均价格: %.2f\n", avgPrice)
 
-	// 使用上级路径导航
+    // 使用上级路径导航
 	firstBookTitle := root.Query("/store/books[0]/../books[0]/title").String()
 	fmt.Println("第一本书 (使用上级路径导航):", firstBookTitle)
 }
+
 ```
 
 数据修改：
@@ -381,7 +352,7 @@ func modificationExample() {
 
 	// 修改现有数据
 	root.Query("/users[0]").Set("name", "John Doe")
-	
+
 	// 添加新数据
 	newUser := map[string]interface{}{
 		"id": 3,
