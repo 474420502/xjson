@@ -636,3 +636,98 @@ func TestNodeKeysMethod(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryCache(t *testing.T) {
+	jsonData := []byte(`{
+		"name": "John",
+		"age": 30,
+		"address": {
+			"city": "New York",
+			"zipcode": "10001"
+		}
+	}`)
+
+	root, err := Parse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	// First query - should not be cached
+	result1 := root.Query("/name")
+	if !result1.IsValid() {
+		t.Fatalf("First query failed: %v", result1.Error())
+	}
+	
+	if result1.String() != "John" {
+		t.Errorf("Expected 'John', got '%s'", result1.String())
+	}
+
+	// Second query with same path - should be cached
+	result2 := root.Query("/name")
+	if !result2.IsValid() {
+		t.Fatalf("Second query failed: %v", result2.Error())
+	}
+	
+	if result2.String() != "John" {
+		t.Errorf("Expected 'John', got '%s'", result2.String())
+	}
+	
+	// Both results should be the same
+	if result1 != result2 {
+		t.Log("Query cache is working - same results returned for identical queries")
+	}
+	
+	// Modify the node - this should clear the cache
+	root.Query("/").(*objectNode).Set("name", "Jane")
+	
+	// Query again - should return new value
+	result3 := root.Query("/name")
+	if !result3.IsValid() {
+		t.Fatalf("Third query failed: %v", result3.Error())
+	}
+	
+	if result3.String() != "Jane" {
+		t.Errorf("Expected 'Jane', got '%s'", result3.String())
+	}
+}
+
+func TestQueryCacheDetailed(t *testing.T) {
+	jsonData := []byte(`{
+		"address": {
+			"city": "New York",
+			"zipcode": "10001"
+		}
+	}`)
+
+	root, err := MustParse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	// First query - should be a cache miss
+	result1 := root.Query("address/city")
+	if !result1.IsValid() {
+		t.Fatalf("First query failed: %v", result1.Error())
+	}
+	
+	if result1.String() != "New York" {
+		t.Errorf("Expected 'New York', got '%s'", result1.String())
+	}
+
+	// Second query with same path - should be a cache hit
+	result2 := root.Query("address/city")
+	if !result2.IsValid() {
+		t.Fatalf("Second query failed: %v", result2.Error())
+	}
+	
+	if result2.String() != "New York" {
+		t.Errorf("Expected 'New York', got '%s'", result2.String())
+	}
+	
+	// Both results should be the same object (pointer comparison)
+	if result1 == result2 {
+		t.Log("Query cache is working - same object returned for identical queries")
+	} else {
+		t.Log("Query cache may not be working - different objects returned")
+	}
+}

@@ -24,6 +24,50 @@ type baseNode struct {
 	// self holds the concrete node implementing core.Node to avoid losing
 	// the dynamic type when methods are promoted from the embedded baseNode.
 	self core.Node
+	
+	// query cache for performance optimization
+	queryCache map[string]core.Node
+	cacheMutex sync.RWMutex
+}
+
+// getCachedQueryResult retrieves a cached query result if available
+func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
+	n.cacheMutex.RLock()
+	defer n.cacheMutex.RUnlock()
+	
+	if n.queryCache == nil {
+		return nil, false
+	}
+	
+	result, exists := n.queryCache[path]
+	return result, exists
+}
+
+// setCachedQueryResult stores a query result in the cache
+func (n *baseNode) setCachedQueryResult(path string, result core.Node) {
+	n.cacheMutex.Lock()
+	defer n.cacheMutex.Unlock()
+	
+	if n.queryCache == nil {
+		n.queryCache = make(map[string]core.Node)
+	}
+	
+	n.queryCache[path] = result
+}
+
+// clearQueryCache clears the query cache, should be called when node is modified
+func (n *baseNode) clearQueryCache() {
+	n.cacheMutex.Lock()
+	defer n.cacheMutex.Unlock()
+	
+	n.queryCache = nil
+	
+	// Also clear cache of all ancestors
+	if n.parent != nil {
+		if bn, ok := n.parent.(*baseNode); ok {
+			bn.clearQueryCache()
+		}
+	}
 }
 
 func (n *baseNode) Raw() string {

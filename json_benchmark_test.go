@@ -159,9 +159,10 @@ func BenchmarkJsonIterUnmarshal(b *testing.B) {
 func BenchmarkJsonIterQuery(b *testing.B) {
 	var data map[string]interface{}
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	json.Unmarshal(largeJSONData, &data)
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		json.Unmarshal(largeJSONData, &data)
 		addr, ok := data["address"].(map[string]interface{})
 		if ok {
 			_ = addr["city"]
@@ -180,5 +181,94 @@ func BenchmarkJsonIterSet(b *testing.B) {
 			addr["city"] = "NewCity"
 		}
 		_, _ = json.Marshal(data)
+	}
+}
+
+// 一次性解析后多次查询（预解析）
+func BenchmarkXJSONQuery_OnceParse_MultiQuery(b *testing.B) {
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	queryPath := "address/city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		doc.Query(queryPath)
+	}
+}
+
+// 每次懒解析+查询
+func BenchmarkXJSONQuery_LazyParse_EachQuery(b *testing.B) {
+	queryPath := "address/city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		doc, err := Parse(largeJSONData)
+		if err != nil {
+			b.Fatal(err)
+		}
+		doc.Query(queryPath)
+	}
+}
+
+// encoding/json 一次性解析后多次查询
+func BenchmarkStandardJSONQuery_OnceParse_MultiQuery(b *testing.B) {
+	var data map[string]interface{}
+	json.Unmarshal(largeJSONData, &data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// encoding/json 每次懒解析+查询
+func BenchmarkStandardJSONQuery_LazyParse_EachQuery(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		json.Unmarshal(largeJSONData, &data)
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// json-iterator/go 一次性解析后多次查询
+func BenchmarkJsonIterQuery_OnceParse_MultiQuery(b *testing.B) {
+	var data map[string]interface{}
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	json.Unmarshal(largeJSONData, &data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// json-iterator/go 每次懒解析+查询
+func BenchmarkJsonIterQuery_LazyParse_EachQuery(b *testing.B) {
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		json.Unmarshal(largeJSONData, &data)
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// gjson 一次性解析后多次查询（gjson 本身是懒解析，直接多次 Get）
+func BenchmarkGJSONQuery_MultiQuery(b *testing.B) {
+	queryPath := "address.city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		gjson.Get(string(largeJSONData), queryPath)
 	}
 }

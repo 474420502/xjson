@@ -75,6 +75,9 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 			break
 		}
 	}
+	
+	// Clear query cache since we're modifying the node
+	n.baseNode.clearQueryCache()
 
 	// Update sorted keys
 	found := false

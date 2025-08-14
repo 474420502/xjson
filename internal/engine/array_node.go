@@ -70,6 +70,9 @@ func (n *arrayNode) Set(key string, value interface{}) core.Node {
 			return n
 		}
 		n.value[idx] = child
+		
+		// Clear query cache since we're modifying the node
+		n.baseNode.clearQueryCache()
 	} else {
 		return newInvalidNode(fmt.Errorf("index out of bounds for set: %d", idx))
 	}
@@ -97,6 +100,9 @@ func (n *arrayNode) Append(value interface{}) core.Node {
 			break
 		}
 	}
+	
+	// Clear query cache since we're modifying the node
+	n.baseNode.clearQueryCache()
 
 	child := NewNodeFromInterface(n, value, n.funcs)
 	if !child.IsValid() {

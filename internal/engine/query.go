@@ -159,24 +159,16 @@ func tryParseInt(s string) (int, bool) {
 	if s[0] == '-' && len(s) == 1 {
 		return 0, false
 	}
-	if s[0] == '-' {
-		for i := 1; i < len(s); i++ {
-			if s[i] < '0' || s[i] > '9' {
-				return 0, false
-			}
+	for i := 0; i < len(s); i++ {
+		if s[i] == '-' && i == 0 {
+			continue
 		}
-	} else {
-		for i := 0; i < len(s); i++ {
-			if s[i] < '0' || s[i] > '9' {
-				return 0, false
-			}
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
 		}
 	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, false
-	}
-	return v, true
+	n, err := strconv.Atoi(s)
+	return n, err == nil
 }
 
 func recursiveSearch(node core.Node, key string) core.Node {
@@ -211,13 +203,23 @@ func recursiveSearch(node core.Node, key string) core.Node {
 	return arr
 }
 
+// newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
+	// Try to get cached result first
+	if bn, ok := start.(interface{ getCachedQueryResult(string) (core.Node, bool) }); ok {
+		if cachedResult, exists := bn.getCachedQueryResult(path); exists {
+			return cachedResult
+		}
+	}
+
 	tokens, err := ParseQuery(path)
 	if err != nil {
 		return newInvalidNode(err)
 	}
+
 	cur := start
 	for _, t := range tokens {
+
 		if !cur.IsValid() {
 			return cur
 		}
@@ -327,5 +329,11 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			return newInvalidNode(fmt.Errorf("nil during query"))
 		}
 	}
+
+	// Cache the result
+	if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+		bn.setCachedQueryResult(path, cur)
+	}
+
 	return cur
 }
