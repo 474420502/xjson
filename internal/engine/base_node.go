@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,8 +65,9 @@ func (n *baseNode) clearQueryCache() {
 	
 	// Also clear cache of all ancestors
 	if n.parent != nil {
-		if bn, ok := n.parent.(*baseNode); ok {
-			bn.clearQueryCache()
+		// Try to call clearQueryCache on the parent if it's a baseNode
+		if parentBase, ok := n.parent.(interface{ clearQueryCache() }); ok {
+			parentBase.clearQueryCache()
 		}
 	}
 }
@@ -116,31 +118,108 @@ func (n *baseNode) RawBytes() []byte {
 	return n.raw[s:e]
 }
 
-func (n *baseNode) IsValid() bool {
-	return n.err == nil
-}
-
-func (n *baseNode) Error() error {
-	return n.err
-}
-
 func (n *baseNode) Parent() core.Node {
+	if n.err != nil {
+		return n.selfOrMe()
+	}
 	return n.parent
 }
 
-// setParent sets the parent node. This is used internally when building node trees.
-func (n *baseNode) setParent(parent core.Node) {
-	n.parent = parent
+func (n *baseNode) Error() error {
+	if n.err != nil {
+		return n.err
+	}
+	return nil
 }
 
-func (n *baseNode) GetFuncs() *map[string]core.UnaryPathFunc {
-	return n.funcs
+func (n *baseNode) selfOrMe() core.Node {
+	if n.self != nil {
+		return n.self
+	}
+	return n
 }
 
 func (n *baseNode) setError(err error) {
 	if n.err == nil {
 		n.err = err
 	}
+}
+
+// SetByPath sets a value at the specified path, creating intermediate nodes if needed
+func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
+	if n.err != nil {
+		return n.selfOrMe()
+	}
+	
+	// Parse the path into tokens
+	tokens, err := ParseQuery(path)
+	if err != nil {
+		return newInvalidNode(fmt.Errorf("invalid path: %v", err))
+	}
+	
+	// Navigate to the parent of the target node
+	current := n.selfOrMe()
+	for i := 0; i < len(tokens)-1; i++ {
+		token := tokens[i]
+		switch token.Op {
+		case OpKey:
+			if obj, ok := current.(interface{ Get(string) core.Node }); ok {
+				next := obj.Get(token.Value.(string))
+				if !next.IsValid() {
+					// Try to create intermediate object node
+					if _, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+						newObj := NewObjectNode(current, []byte("{}"), nil)
+						current = current.Set(token.Value.(string), newObj)
+						if !current.IsValid() {
+							return current
+						}
+					} else {
+						return newInvalidNode(fmt.Errorf("cannot create key in non-object node"))
+					}
+				} else {
+					current = next
+				}
+			} else {
+				return newInvalidNode(fmt.Errorf("key operation not supported on node type %s", current.Type()))
+			}
+		case OpIndex:
+			if arr, ok := current.(interface{ Index(int) core.Node }); ok {
+				index := token.Value.(int)
+				next := arr.Index(index)
+				if !next.IsValid() {
+					return newInvalidNode(fmt.Errorf("index %d out of bounds", index))
+				}
+				current = next
+			} else {
+				return newInvalidNode(fmt.Errorf("index operation not supported on node type %s", current.Type()))
+			}
+		default:
+			return newInvalidNode(fmt.Errorf("operation %v not supported in SetByPath", token.Op))
+		}
+	}
+	
+	// Set the value at the final token
+	if len(tokens) > 0 {
+		lastToken := tokens[len(tokens)-1]
+		switch lastToken.Op {
+		case OpKey:
+			if obj, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+				return obj.Set(lastToken.Value.(string), value)
+			} else {
+				return newInvalidNode(fmt.Errorf("cannot set key on node type %s", current.Type()))
+			}
+		case OpIndex:
+			if arr, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+				return arr.Set(strconv.Itoa(lastToken.Value.(int)), value)
+			} else {
+				return newInvalidNode(fmt.Errorf("cannot set index on node type %s", current.Type()))
+			}
+		default:
+			return newInvalidNode(fmt.Errorf("operation %v not supported for setting value", lastToken.Op))
+		}
+	}
+	
+	return newInvalidNode(fmt.Errorf("empty path"))
 }
 
 func (n *baseNode) Path() string {
@@ -156,10 +235,7 @@ func (n *baseNode) Query(path string) core.Node {
 	if n.err != nil {
 		return newInvalidNode(n.err)
 	}
-	start := core.Node(n)
-	if n.self != nil {
-		start = n.self
-	}
+	start := n.selfOrMe()
 	return applySimpleQuery(start, path)
 }
 
@@ -195,17 +271,10 @@ func (n *baseNode) CallFunc(name string) core.Node {
 			if n.self != nil {
 				return fn(n.self)
 			}
-			return fn(n)
+			return newInvalidNode(fmt.Errorf("function '%s' not found", name))
 		}
 	}
-	return newInvalidNode(fmt.Errorf("func '%s' not found", name))
-}
-
-func (n *baseNode) selfOrMe() core.Node {
-	if n.self != nil {
-		return n.self
-	}
-	return n
+	return newInvalidNode(fmt.Errorf("function '%s' not found", name))
 }
 
 // Default/placeholder implementations for methods that must be overridden
@@ -235,14 +304,17 @@ func (n *baseNode) Map(fn core.TransformFunc) core.Node {
 }
 
 func (n *baseNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {
-	fn(nil, n)
+	fn(nil, n.selfOrMe())
 }
+
 func (n *baseNode) SetValue(v interface{}) core.Node {
 	return newInvalidNode(fmt.Errorf("setValue not supported on type %s", n.Type()))
 }
+
 func (n *baseNode) Apply(fn core.PathFunc) core.Node {
 	return newInvalidNode(fmt.Errorf("apply not supported on type %s", n.Type()))
 }
+
 func (n *baseNode) String() string                  { return n.Raw() }
 func (n *baseNode) MustString() string              { panic(core.ErrTypeAssertion) }
 func (n *baseNode) Float() float64                  { return 0 }
@@ -263,3 +335,11 @@ func (n *baseNode) Keys() []string                  { return nil }
 func (n *baseNode) Contains(value string) bool      { return n.String() == value }
 func (n *baseNode) AsMap() map[string]core.Node     { return nil }
 func (n *baseNode) MustAsMap() map[string]core.Node { panic(core.ErrTypeAssertion) }
+
+func (n *baseNode) GetFuncs() *map[string]core.UnaryPathFunc {
+	return n.funcs
+}
+
+func (n *baseNode) IsValid() bool {
+	return n.err == nil
+}

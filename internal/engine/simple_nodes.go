@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,15 @@ func (n *stringNode) RawString() (string, bool) {
 func (n *stringNode) Contains(v string) bool { return n.value == v }
 func (n *stringNode) Interface() interface{} {
 	return n.value
+}
+
+func (n *stringNode) Set(key string, value interface{}) core.Node {
+	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))
+}
+
+// SetByPath implements the SetByPath method for stringNode
+func (n *stringNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
 }
 
 func (n *stringNode) Time() time.Time {
@@ -86,6 +96,15 @@ func (n *numberNode) Interface() interface{} {
 	return f
 }
 
+func (n *numberNode) Set(key string, value interface{}) core.Node {
+	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))
+}
+
+// SetByPath implements the SetByPath method for numberNode
+func (n *numberNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
+}
+
 func (n *numberNode) RawFloat() (float64, bool) {
 	f, err := strconv.ParseFloat(n.Raw(), 64)
 	if err != nil {
@@ -111,6 +130,15 @@ func (n *boolNode) String() string {
 }
 func (n *boolNode) Interface() interface{} { return n.value }
 
+func (n *boolNode) Set(key string, value interface{}) core.Node {
+	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))
+}
+
+// SetByPath implements the SetByPath method for boolNode
+func (n *boolNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
+}
+
 // nullNode implementation
 type nullNode struct {
 	baseNode
@@ -119,3 +147,12 @@ type nullNode struct {
 func (n *nullNode) Type() core.NodeType    { return core.Null }
 func (n *nullNode) String() string         { return "null" }
 func (n *nullNode) Interface() interface{} { return nil }
+
+func (n *nullNode) Set(key string, value interface{}) core.Node {
+	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))
+}
+
+// SetByPath implements the SetByPath method for nullNode
+func (n *nullNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
+}

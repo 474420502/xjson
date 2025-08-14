@@ -35,6 +35,15 @@ type TransformFunc = core.TransformFunc
 // Node is an alias for the core Node.
 type Node = core.Node
 
+// nodeWrapper wraps a core.Node to provide additional methods.
+type nodeWrapper struct {
+	core.Node
+}
+
+func (nw nodeWrapper) SetByPath(path string, value interface{}) Node {
+	return nodeWrapper{nw.Node.SetByPath(path, value)}
+}
+
 // Parse parses a raw JSON string or bytes and returns the root Node.
 // This is the main entry point for using the XJSON library.
 // This function will parse the entire JSON tree eagerly.
@@ -53,7 +62,11 @@ func Parse(data interface{}) (Node, error) {
 		return nil, fmt.Errorf("empty data")
 	}
 
-	return engine.MustParse(raw)
+	node, err := engine.MustParse(raw)
+	if err != nil {
+		return nil, err
+	}
+	return nodeWrapper{node}, nil
 }
 
 // MustParse parses a raw JSON string or bytes and returns the root Node.
@@ -73,5 +86,9 @@ func MustParse(data interface{}) (Node, error) {
 		return nil, fmt.Errorf("empty data")
 	}
 
-	return engine.Parse(raw)
+	node, err := engine.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	return nodeWrapper{node}, nil
 }

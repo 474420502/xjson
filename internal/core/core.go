@@ -93,6 +93,8 @@ type Node interface {
 	Contains(value string) bool
 	AsMap() map[string]Node
 	MustAsMap() map[string]Node
+	// SetByPath sets a value at the specified path, creating intermediate nodes if needed
+	SetByPath(path string, value interface{}) Node
 }
 
 // ErrTypeAssertion is returned when a Must* conversion fails.

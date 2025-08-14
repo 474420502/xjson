@@ -102,6 +102,11 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 	return n
 }
 
+// SetByPath implements the SetByPath method for objectNode
+func (n *objectNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
+}
+
 // 新增辅助方法来避免重复代码
 func (n *objectNode) containsKey(key string) bool {
 	if n.sortedKeys == nil {

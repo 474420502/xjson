@@ -3,7 +3,6 @@ package xjson
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
 	"testing"
 
 	jsoniter "github.com/json-iterator/go"
@@ -46,16 +45,6 @@ func init() {
 	}`
 	largeJSONData = []byte(data)
 
-	// 尝试从文件加载更复杂的 JSON 数据
-	// 假设存在一个 large.json 文件在当前目录或测试数据目录
-	if content, err := ioutil.ReadFile("testdata/large.json"); err == nil {
-		largeJSONData = content
-	} else if content, err := ioutil.ReadFile("example/data/large.json"); err == nil {
-		largeJSONData = content
-	} else {
-		// 如果文件不存在，则使用默认的 largeJSONData
-		// fmt.Println("Warning: Could not load large.json, using default data for benchmark.")
-	}
 }
 
 // BenchmarkXJSONParse 衡量 xjson 的 JSON 解析性能
@@ -84,10 +73,122 @@ func BenchmarkXJSONSet(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	setPath := "address.city"
+	setPath := "address/city"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		doc.Set(setPath, "NewCity")
+		doc.SetByPath(setPath, "NewCity")
+		_ = doc.String()
+	}
+}
+
+// 一次性解析后多次查询（预解析）
+func BenchmarkXJSONQuery_OnceParse_MultiQuery(b *testing.B) {
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	queryPath := "address/city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		doc.Query(queryPath)
+	}
+}
+
+// 每次懒解析+查询
+func BenchmarkXJSONQuery_LazyParse_EachQuery(b *testing.B) {
+	queryPath := "address/city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		doc, err := Parse(largeJSONData)
+		if err != nil {
+			b.Fatal(err)
+		}
+		doc.Query(queryPath)
+	}
+}
+
+// BenchmarkGJSONQuery 衡量 gjson 的 JSON 查询性能
+func BenchmarkGJSONQuery(b *testing.B) {
+	queryPath := "address.city"
+	for i := 0; i < b.N; i++ {
+		gjson.Get(string(largeJSONData), queryPath)
+	}
+}
+
+// gjson 一次性解析后多次查询（gjson 本身是懒解析，直接多次 Get）
+func BenchmarkGJSONQuery_MultiQuery(b *testing.B) {
+	queryPath := "address.city"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		gjson.Get(string(largeJSONData), queryPath)
+	}
+}
+
+// 引入 json-iterator/go
+
+// BenchmarkJsonIterUnmarshal 衡量 json-iterator/go 的 JSON 反序列化性能
+func BenchmarkJsonIterUnmarshal(b *testing.B) {
+	var data map[string]interface{}
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	for i := 0; i < b.N; i++ {
+		json.Unmarshal(largeJSONData, &data)
+	}
+}
+
+// BenchmarkJsonIterQuery 衡量 json-iterator/go 的查询性能
+func BenchmarkJsonIterQuery(b *testing.B) {
+	var data map[string]interface{}
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		json.Unmarshal(largeJSONData, &data)
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// BenchmarkJsonIterSet 衡量 json-iterator/go 的设置性能
+func BenchmarkJsonIterSet(b *testing.B) {
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		json.Unmarshal(largeJSONData, &data)
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			addr["city"] = "NewCity"
+		}
+		_, _ = json.Marshal(data)
+	}
+}
+
+// json-iterator/go 一次性解析后多次查询
+func BenchmarkJsonIterQuery_OnceParse_MultiQuery(b *testing.B) {
+	var data map[string]interface{}
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	json.Unmarshal(largeJSONData, &data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
+	}
+}
+
+// json-iterator/go 每次懒解析+查询
+func BenchmarkJsonIterQuery_LazyParse_EachQuery(b *testing.B) {
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		json.Unmarshal(largeJSONData, &data)
+		addr, ok := data["address"].(map[string]interface{})
+		if ok {
+			_ = addr["city"]
+		}
 	}
 }
 
@@ -136,80 +237,6 @@ func BenchmarkStandardJSONSet(b *testing.B) {
 	}
 }
 
-// BenchmarkGJSONQuery 衡量 gjson 的 JSON 查询性能
-func BenchmarkGJSONQuery(b *testing.B) {
-	queryPath := "address.city"
-	for i := 0; i < b.N; i++ {
-		gjson.Get(string(largeJSONData), queryPath)
-	}
-}
-
-// 引入 json-iterator/go
-
-// BenchmarkJsonIterUnmarshal 衡量 json-iterator/go 的 JSON 反序列化性能
-func BenchmarkJsonIterUnmarshal(b *testing.B) {
-	var data map[string]interface{}
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	for i := 0; i < b.N; i++ {
-		json.Unmarshal(largeJSONData, &data)
-	}
-}
-
-// BenchmarkJsonIterQuery 衡量 json-iterator/go 的查询性能
-func BenchmarkJsonIterQuery(b *testing.B) {
-	var data map[string]interface{}
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		json.Unmarshal(largeJSONData, &data)
-		addr, ok := data["address"].(map[string]interface{})
-		if ok {
-			_ = addr["city"]
-		}
-	}
-}
-
-// BenchmarkJsonIterSet 衡量 json-iterator/go 的设置性能
-func BenchmarkJsonIterSet(b *testing.B) {
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	for i := 0; i < b.N; i++ {
-		var data map[string]interface{}
-		json.Unmarshal(largeJSONData, &data)
-		addr, ok := data["address"].(map[string]interface{})
-		if ok {
-			addr["city"] = "NewCity"
-		}
-		_, _ = json.Marshal(data)
-	}
-}
-
-// 一次性解析后多次查询（预解析）
-func BenchmarkXJSONQuery_OnceParse_MultiQuery(b *testing.B) {
-	doc, err := MustParse(largeJSONData)
-	if err != nil {
-		b.Fatal(err)
-	}
-	queryPath := "address/city"
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		doc.Query(queryPath)
-	}
-}
-
-// 每次懒解析+查询
-func BenchmarkXJSONQuery_LazyParse_EachQuery(b *testing.B) {
-	queryPath := "address/city"
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		doc, err := Parse(largeJSONData)
-		if err != nil {
-			b.Fatal(err)
-		}
-		doc.Query(queryPath)
-	}
-}
-
 // encoding/json 一次性解析后多次查询
 func BenchmarkStandardJSONQuery_OnceParse_MultiQuery(b *testing.B) {
 	var data map[string]interface{}
@@ -233,42 +260,5 @@ func BenchmarkStandardJSONQuery_LazyParse_EachQuery(b *testing.B) {
 		if ok {
 			_ = addr["city"]
 		}
-	}
-}
-
-// json-iterator/go 一次性解析后多次查询
-func BenchmarkJsonIterQuery_OnceParse_MultiQuery(b *testing.B) {
-	var data map[string]interface{}
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	json.Unmarshal(largeJSONData, &data)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		addr, ok := data["address"].(map[string]interface{})
-		if ok {
-			_ = addr["city"]
-		}
-	}
-}
-
-// json-iterator/go 每次懒解析+查询
-func BenchmarkJsonIterQuery_LazyParse_EachQuery(b *testing.B) {
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var data map[string]interface{}
-		json.Unmarshal(largeJSONData, &data)
-		addr, ok := data["address"].(map[string]interface{})
-		if ok {
-			_ = addr["city"]
-		}
-	}
-}
-
-// gjson 一次性解析后多次查询（gjson 本身是懒解析，直接多次 Get）
-func BenchmarkGJSONQuery_MultiQuery(b *testing.B) {
-	queryPath := "address.city"
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		gjson.Get(string(largeJSONData), queryPath)
 	}
 }

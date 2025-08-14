@@ -22,7 +22,15 @@ func (n *invalidNode) Get(key string) core.Node                                 
 func (n *invalidNode) Index(i int) core.Node                                    { return n }
 func (n *invalidNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {}
 func (n *invalidNode) Len() int                                                 { return 0 }
-func (n *invalidNode) Set(key string, value interface{}) core.Node              { return n }
+func (n *invalidNode) Set(key string, value interface{}) core.Node {
+	return n
+}
+
+// SetByPath implements the SetByPath method for invalidNode
+func (n *invalidNode) SetByPath(path string, value interface{}) core.Node {
+	return n
+}
+
 func (n *invalidNode) Append(value interface{}) core.Node                       { return n }
 
 func (n *invalidNode) String() string                  { return "invalid" }

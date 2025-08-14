@@ -80,6 +80,11 @@ func (n *arrayNode) Set(key string, value interface{}) core.Node {
 	return n
 }
 
+// SetByPath implements the SetByPath method for arrayNode
+func (n *arrayNode) SetByPath(path string, value interface{}) core.Node {
+	return n.baseNode.SetByPath(path, value)
+}
+
 func (n *arrayNode) Append(value interface{}) core.Node {
 	if n.err != nil {
 		return n
