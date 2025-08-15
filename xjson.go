@@ -45,8 +45,7 @@ func (nw nodeWrapper) SetByPath(path string, value interface{}) Node {
 }
 
 // Parse parses a raw JSON string or bytes and returns the root Node.
-// This is the main entry point for using the XJSON library.
-// This function will parse the entire JSON tree eagerly.
+// This function creates a lazy-parsed tree where nodes are parsed on demand.
 func Parse(data interface{}) (Node, error) {
 	var raw []byte
 	switch v := data.(type) {
@@ -62,7 +61,7 @@ func Parse(data interface{}) (Node, error) {
 		return nil, fmt.Errorf("empty data")
 	}
 
-	node, err := engine.MustParse(raw)
+	node, err := engine.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +69,8 @@ func Parse(data interface{}) (Node, error) {
 }
 
 // MustParse parses a raw JSON string or bytes and returns the root Node.
-// This function creates a lazy-parsed tree where nodes are parsed on demand.
+// This is the main entry point for using the XJSON library.
+// This function will parse the entire JSON tree eagerly.
 func MustParse(data interface{}) (Node, error) {
 	var raw []byte
 	switch v := data.(type) {
@@ -86,7 +86,7 @@ func MustParse(data interface{}) (Node, error) {
 		return nil, fmt.Errorf("empty data")
 	}
 
-	node, err := engine.Parse(raw)
+	node, err := engine.MustParse(raw)
 	if err != nil {
 		return nil, err
 	}

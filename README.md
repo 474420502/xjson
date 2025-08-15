@@ -398,6 +398,39 @@ func modificationExample() {
 }
 ```
 
+## Lazy Iterators (ObjectIter / ArrayIter)
+
+When working with very large JSON documents, iterating over keys or array elements without forcing full parsing of every child can save CPU and memory. XJSON's engine exposes lazy iterators (`ObjectIter` and `ArrayIter`) that scan the underlying bytes and only parse a value when you explicitly request it.
+
+Important notes:
+
+- Iterators operate in two modes:
+  - raw-mode: scans the original `raw []byte` and returns key/value byte ranges without allocating child nodes.
+  - parsed-mode: when the node has been modified (`isDirty==true`) or has no raw bytes, iterators traverse the in-memory `value` structures.
+- Call `ParseValue()` to parse the current element's value into a `core.Node` only when needed. Parsed children may be cached back on the parent to speed subsequent access.
+- Iterators are not safe for concurrent mutation. Avoid modifying the node while iterating.
+
+Example (internal/engine usage):
+
+```go
+// Assume obj is an *objectNode or a Node known to be an object in the engine package
+it := obj.Iter() // returns ObjectIter
+for it.Next() {
+	key := string(it.KeyRaw()) // cheap string conversion of raw key
+	if shouldParse(key) {
+		child := it.ParseValue() // parse on demand
+		// use child (core.Node)
+	} else {
+		rawVal := it.ValueRaw() // raw bytes for the value
+		// inspect rawVal without allocating a Node
+	}
+}
+if err := it.Err(); err != nil {
+	// handle iterator error
+}
+```
+
+
 ## 💡 Core Design
 
 ### 1. Unified Node Model

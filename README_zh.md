@@ -798,6 +798,46 @@ root.RegisterFunc("inStock", func(n xjson.Node) xjson.Node {
     })
 })
 
+## 🧭 懒迭代器（内部优化说明）
+
+> 该节面向对性能敏感的高级用户与贡献者，介绍库内部新增的“懒迭代器”机制。迭代器用于在不强制完整解析子节点的情况下遍历对象键或数组元素，从而在处理大型 JSON 文档或执行通配符/递归查询时显著降低内存分配和解析开销。
+
+要点：
+
+- 两种迭代器：`ObjectIter`（对象键迭代）与 `ArrayIter`（数组元素迭代）。
+- 在节点保持未解析（raw 字节形式）时，迭代器直接在原始字节上查找下一个键或元素的起止位置，返回原始片段或按需解析单个元素。这样避免一次性将整个对象或数组解析为子节点。
+- 当节点被标记为脏（修改过）或已解析时，迭代器会回退到普通解析模式，逐个返回已解析的子 Node。
+- 迭代器提供的方法：
+	- `Next() bool`：移动到下一个元素/键，返回是否成功。
+	- `KeyRaw() string`（仅对象）：返回当前键的原始字符串（未解码）。
+	- `ValueRaw() string`：返回当前值对应的原始 JSON 片段（未解析）。
+	- `ParseValue() Node`：按需解析当前值并返回一个 `Node`（会在安全时缓存到父节点），便于后续基于 Node 的操作（例如路径函数或递归查询）。
+	- `Index() int`（仅数组）：返回当前元素的索引。
+
+示例：按需遍历数组并只解析价格小于 20 的元素：
+
+```go
+root, _ := xjson.Parse(largeJSON)
+books := root.Get("store").Get("books")
+it := books.Iter()
+for it.Next() {
+		seg := it.ValueRaw() // 原始 JSON 片段，如 `{"title":"...","price":8.99}`
+		// 快速在原始片段上查找 price 数值，避免解析整个对象
+		if price := quickExtractPrice(seg); price < 20 {
+				node := it.ParseValue() // 按需解析此元素
+				fmt.Println(node.Get("title").String())
+		}
+}
+```
+
+注意事项与最佳实践：
+
+- 迭代器位于 `internal/engine` 包，是内部性能优化接口；稳定的公共 API 仍然是 `Query` / `Get` / `Index` 等方法。如果需要在应用层暴露类似能力，请封装并谨慎维护向后兼容性。
+- 迭代器的 `ParseValue()` 会在安全时将解析后的子节点缓存回父节点，以便后续重复访问不再重复解析；因此对父节点的并发修改需注意同步。
+- 当需要对节点执行路径函数（`[@fn]`）或复杂的递归查询（`//`）时，优先使用 `ParseValue()` 得到的 `Node`，以保证父节点关系与函数上下文的正确性。
+
+该机制已在通配符、数组遍历和递归查询中集成使用，能够在多数真实场景下减少不必要的解析和内存分配，从而提升查询性能。
+
 // 使用语义化查询
 availableProducts := root.Query("/products[@inStock]")
 ```

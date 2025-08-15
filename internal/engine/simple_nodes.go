@@ -113,6 +113,10 @@ func (n *numberNode) RawFloat() (float64, bool) {
 	return f, true
 }
 
+func (n *numberNode) RawString() (string, bool) {
+	return n.Raw(), true
+}
+
 // boolNode implementation
 type boolNode struct {
 	baseNode
@@ -129,6 +133,17 @@ func (n *boolNode) String() string {
 	return "false"
 }
 func (n *boolNode) Interface() interface{} { return n.value }
+
+func (n *boolNode) RawString() (string, bool) {
+	if n.value {
+		return "true", true
+	}
+	return "false", true
+}
+
+func (n *boolNode) RawFloat() (float64, bool) {
+	return 0, false
+}
 
 func (n *boolNode) Set(key string, value interface{}) core.Node {
 	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))
@@ -147,6 +162,14 @@ type nullNode struct {
 func (n *nullNode) Type() core.NodeType    { return core.Null }
 func (n *nullNode) String() string         { return "null" }
 func (n *nullNode) Interface() interface{} { return nil }
+
+func (n *nullNode) RawString() (string, bool) {
+	return "null", true
+}
+
+func (n *nullNode) RawFloat() (float64, bool) {
+	return 0, false
+}
 
 func (n *nullNode) Set(key string, value interface{}) core.Node {
 	return newInvalidNode(fmt.Errorf("set not supported on type %s", n.Type()))

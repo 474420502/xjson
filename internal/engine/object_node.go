@@ -28,12 +28,124 @@ func (n *objectNode) Get(key string) core.Node {
 	if n.err != nil {
 		return n
 	}
-	n.lazyParse()
-	
+	// 优先只解析目标 key
+	n.lazyParsePath([]string{key})
 	if child, ok := n.value[key]; ok {
 		return child
 	}
 	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+}
+
+// GetWithPath gets a child node with path information for lazy loading
+func (n *objectNode) GetWithPath(key string, path []string) core.Node {
+	if n.err != nil {
+		return n
+	}
+	// Only parse what we need for this path
+	n.lazyParsePath(path)
+
+	if child, ok := n.value[key]; ok {
+		return child
+	}
+	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+}
+
+// LazyGet 实现真正的懒加载获取
+func (n *objectNode) LazyGet(key string) core.Node {
+	if n.err != nil {
+		return n
+	}
+	n.lazyParsePath([]string{key})
+	if child, ok := n.value[key]; ok {
+		return child
+	}
+	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+}
+
+// 辅助函数：查找匹配的大括号
+func findMatchingBrace(data []byte, start int) int {
+	if start >= len(data) || data[start] != '{' {
+		return -1
+	}
+
+	level := 1
+	for i := start + 1; i < len(data); i++ {
+		switch data[i] {
+		case '{':
+			level++
+		case '}':
+			level--
+			if level == 0 {
+				return i
+			}
+		case '"':
+			// 跳过字符串中的内容
+			for j := i + 1; j < len(data); j++ {
+				if data[j] == '"' && (j == 0 || data[j-1] != '\\') {
+					i = j
+					break
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+// 辅助函数：查找匹配的方括号
+func findMatchingBracket(data []byte, start int) int {
+	if start >= len(data) || data[start] != '[' {
+		return -1
+	}
+
+	level := 1
+	for i := start + 1; i < len(data); i++ {
+		switch data[i] {
+		case '[':
+			level++
+		case ']':
+			level--
+			if level == 0 {
+				return i
+			}
+		case '"':
+			// 跳过字符串中的内容
+			for j := i + 1; j < len(data); j++ {
+				if data[j] == '"' && (j == 0 || data[j-1] != '\\') {
+					i = j
+					break
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+// 辅助函数：查找匹配的引号
+func findMatchingQuote(data []byte, start int) int {
+	if start >= len(data) || data[start] != '"' {
+		return -1
+	}
+
+	for i := start + 1; i < len(data); i++ {
+		if data[i] == '"' && data[i-1] != '\\' {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// 辅助函数：查找值的结束位置
+func findValueEnd(data []byte, start int) int {
+	for i := start; i < len(data); i++ {
+		switch data[i] {
+		case ' ', '\t', '\n', '\r', ',', '}', ']':
+			return i - 1
+		}
+	}
+	return len(data) - 1
 }
 
 func (n *objectNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {
@@ -75,7 +187,7 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 			break
 		}
 	}
-	
+
 	// Clear query cache since we're modifying the node
 	n.baseNode.clearQueryCache()
 
@@ -158,7 +270,7 @@ func (n *objectNode) String() string {
 				}
 			}
 		}
-		
+
 		if !hasDirtyChild {
 			return n.Raw()
 		}
@@ -212,6 +324,7 @@ func (n *objectNode) Interface() interface{} {
 	return m
 }
 
+// lazyParse parses the entire object and sets up children with correct parents
 func (n *objectNode) lazyParse() {
 	if n.parsed.Load() || n.isDirty {
 		return
@@ -230,9 +343,7 @@ func (n *objectNode) lazyParse() {
 	defer n.parsed.Store(true)
 
 	p := newParser(n.raw, n.funcs)
-	// start from the beginning of raw to parse the object
 	p.pos = 0
-	// For root node, pass nil as parent to avoid setting root as its own parent
 	var parent core.Node
 	if n.parent != nil {
 		parent = n
@@ -243,19 +354,194 @@ func (n *objectNode) lazyParse() {
 		return
 	}
 
-	// copy values
 	if cast, ok := parsedNode.(*objectNode); ok {
-		n.value = cast.value
-		// Also copy sortedKeys to maintain order
+		m := make(map[string]core.Node, len(cast.value))
+		for k, child := range cast.value {
+			if bn, ok := child.(*baseNode); ok {
+				bn.parent = n
+			} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+				inode.setParent(n)
+			}
+			m[k] = child
+		}
+		n.value = m
 		n.sortedKeys = cast.sortedKeys
 	}
+}
+
+// lazyParsePath parses only the nodes needed for a specific path
+func (n *objectNode) lazyParsePath(path []string) {
+	if n.parsed.Load() {
+		return
+	}
+	if len(n.raw) == 0 {
+		n.parsed.Store(true)
+		return
+	}
+	if len(path) == 0 {
+		n.lazyParse()
+		return
+	}
+	n.mu.Lock()
+	if n.parsed.Load() {
+		n.mu.Unlock()
+		return
+	}
+
+	// Check if we already have the key
+	key := path[0]
+	if _, ok := n.value[key]; ok {
+		n.mu.Unlock()
+		return
+	}
+
+	// Try to find and parse only the requested key by scanning the raw object
+	raw := n.raw
+	// find opening brace
+	pos := 0
+	for pos < len(raw) && raw[pos] != '{' {
+		pos++
+	}
+	if pos >= len(raw) {
+		// malformed, fallback to full parse
+		n.mu.Unlock()
+		n.lazyParse()
+		return
+	}
+	pos++ // skip '{'
+
+	// helper to skip whitespace
+	skipWS := func() {
+		for pos < len(raw) {
+			c := raw[pos]
+			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+				pos++
+				continue
+			}
+			break
+		}
+	}
+
+	for pos < len(raw) {
+		skipWS()
+		if pos >= len(raw) {
+			break
+		}
+		if raw[pos] == '}' {
+			// end of object
+			break
+		}
+		// expect quoted key
+		if raw[pos] != '"' {
+			// malformed or unexpected token, fallback to full parse
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+		// find key end
+		keyEnd := findMatchingQuote(raw, pos)
+		if keyEnd == -1 {
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+		keyRaw := raw[pos+1 : keyEnd]
+		keyUnesc, err := unescape(keyRaw)
+		if err != nil {
+			n.err = err
+			n.mu.Unlock()
+			return
+		}
+		keyStr := string(keyUnesc)
+		pos = keyEnd + 1
+		skipWS()
+		if pos >= len(raw) || raw[pos] != ':' {
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+		pos++ // skip ':'
+		skipWS()
+		if pos >= len(raw) {
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+
+		// determine value bounds
+		var valEnd int
+		switch raw[pos] {
+		case '{':
+			valEnd = findMatchingBrace(raw, pos)
+		case '[':
+			valEnd = findMatchingBracket(raw, pos)
+		case '"':
+			valEnd = findMatchingQuote(raw, pos)
+		default:
+			valEnd = findValueEnd(raw, pos)
+		}
+		if valEnd == -1 {
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+
+		// If this is the key we want, parse only the value segment and attach
+		if keyStr == key {
+			segment := raw[pos : valEnd+1]
+			p := newParser(segment, n.funcs)
+			// parse single value with parent set to this object
+			child := p.doParse(n)
+			if child == nil || !child.IsValid() {
+				if child != nil {
+					n.err = child.Error()
+					n.mu.Unlock()
+					return
+				}
+				n.mu.Unlock()
+				n.lazyParse()
+				return
+			}
+			// ensure parent pointer is correct
+			if bn, ok := child.(*baseNode); ok {
+				bn.parent = n
+			} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+				inode.setParent(n)
+			}
+			if n.value == nil {
+				n.value = make(map[string]core.Node)
+			}
+			n.value[key] = child
+			n.mu.Unlock()
+			return
+		}
+
+		// move position to after the value
+		pos = valEnd + 1
+		skipWS()
+		if pos < len(raw) && raw[pos] == ',' {
+			pos++
+			continue
+		} else if pos < len(raw) && raw[pos] == '}' {
+			break
+		} else {
+			// malformed -> fallback
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+	}
+
+	// key not found in object, fallback to full parse to establish state
+	n.mu.Unlock()
+	n.lazyParse()
 }
 
 func (n *objectNode) addChild(key string, child core.Node) {
 	if n.value == nil {
 		n.value = make(map[string]core.Node)
 	}
-	
+
 	// Instead of type assertion, we use the Parent() and SetParent() pattern
 	// All node types embed baseNode which has parent field
 	if bn, ok := child.(*baseNode); ok {
@@ -263,6 +549,6 @@ func (n *objectNode) addChild(key string, child core.Node) {
 	} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
 		inode.setParent(n)
 	}
-	
+
 	n.value[key] = child
 }

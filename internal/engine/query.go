@@ -74,13 +74,22 @@ func ParseQuery(path string) ([]QueryToken, error) {
 				quote := path[p]
 				p++
 				start := p
-				for p < len(path) && path[p] != quote {
+				for p < len(path) {
+					if path[p] == '\\' { // escape
+						p += 2
+						continue
+					}
+					if path[p] == quote {
+						break
+					}
 					p++
 				}
 				if p >= len(path) {
 					return nil, fmt.Errorf("unclosed quote in key name")
 				}
-				key := path[start:p]
+				// unescape simple escapes for quotes and backslashes
+				raw := path[start:p]
+				key := strings.ReplaceAll(strings.ReplaceAll(raw, `\\`, `\`), `\"`, `"`)
 				tokens = append(tokens, QueryToken{Op: OpKey, Value: key})
 				p++ // consume closing quote
 				if p >= len(path) || path[p] != ']' {
@@ -172,8 +181,188 @@ func tryParseInt(s string) (int, bool) {
 }
 
 func recursiveSearch(node core.Node, key string) core.Node {
+	// Try optimized raw-byte recursive scan when possible to avoid parsing full subtrees.
 	results := make([]core.Node, 0)
 
+	// helper to append result
+	appendResult := func(n core.Node) {
+		if n != nil && n.IsValid() {
+			results = append(results, n)
+		}
+	}
+
+	// recursive byte-scan for raw nodes
+	var recursiveScanBytes func(data []byte, funcs *map[string]core.UnaryPathFunc)
+	recursiveScanBytes = func(data []byte, funcs *map[string]core.UnaryPathFunc) {
+		if len(data) == 0 {
+			return
+		}
+		// skip whitespace
+		i := 0
+		for i < len(data) && (data[i] == ' ' || data[i] == '\n' || data[i] == '\r' || data[i] == '\t') {
+			i++
+		}
+		if i >= len(data) {
+			return
+		}
+		switch data[i] {
+		case '{':
+			// scan object fields
+			pos := i
+			objEnd := findMatchingBrace(data, pos)
+			if objEnd == -1 {
+				return
+			}
+			parentRaw := data[pos : objEnd+1]
+			parentNode := NewObjectNode(nil, parentRaw, funcs)
+			pos++ // skip '{'
+			skipWS := func() {
+				for pos < len(data) {
+					c := data[pos]
+					if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+						pos++
+						continue
+					}
+					break
+				}
+			}
+			for pos < len(data) {
+				skipWS()
+				if pos >= len(data) || data[pos] == '}' {
+					break
+				}
+				if data[pos] != '"' {
+					// malformed, abort
+					return
+				}
+				keyEnd := findMatchingQuote(data, pos)
+				if keyEnd == -1 {
+					return
+				}
+				keyRaw := data[pos+1 : keyEnd]
+				keyUnesc, err := unescape(keyRaw)
+				if err != nil {
+					return
+				}
+				keyStr := string(keyUnesc)
+				pos = keyEnd + 1
+				skipWS()
+				if pos >= len(data) || data[pos] != ':' {
+					return
+				}
+				pos++
+				skipWS()
+				if pos >= len(data) {
+					return
+				}
+				var valEnd int
+				switch data[pos] {
+				case '{':
+					valEnd = findMatchingBrace(data, pos)
+				case '[':
+					valEnd = findMatchingBracket(data, pos)
+				case '"':
+					valEnd = findMatchingQuote(data, pos)
+				default:
+					valEnd = findValueEnd(data, pos)
+				}
+				if valEnd == -1 {
+					return
+				}
+				// if key matches, parse value and append
+				if key == "" || key == keyStr {
+					segment := data[pos : valEnd+1]
+					p := newParser(segment, funcs)
+					// parse with parentNode so that Parent() works for the child
+					child := p.doParse(parentNode)
+					appendResult(child)
+				}
+				// recurse into value if it's a composite
+				first := getFirstNonWhitespaceChar(data[pos : valEnd+1])
+				if first == '{' || first == '[' {
+					recursiveScanBytes(data[pos:valEnd+1], funcs)
+				}
+				pos = valEnd + 1
+				skipWS()
+				if pos < len(data) && data[pos] == ',' {
+					pos++
+					continue
+				}
+				if pos < len(data) && data[pos] == '}' {
+					break
+				}
+				// malformed -> abort
+				return
+			}
+		case '[':
+			// scan array elements
+			pos := i
+			pos++ // skip '['
+			skipWS := func() {
+				for pos < len(data) {
+					c := data[pos]
+					if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+						pos++
+						continue
+					}
+					break
+				}
+			}
+			for pos < len(data) {
+				skipWS()
+				if pos >= len(data) || data[pos] == ']' {
+					break
+				}
+				var elemEnd int
+				switch data[pos] {
+				case '{':
+					elemEnd = findMatchingBrace(data, pos)
+				case '[':
+					elemEnd = findMatchingBracket(data, pos)
+				case '"':
+					elemEnd = findMatchingQuote(data, pos)
+				default:
+					elemEnd = findValueEnd(data, pos)
+				}
+				if elemEnd == -1 {
+					return
+				}
+				// recurse into element
+				first := getFirstNonWhitespaceChar(data[pos : elemEnd+1])
+				if first == '{' || first == '[' {
+					recursiveScanBytes(data[pos:elemEnd+1], funcs)
+				}
+				pos = elemEnd + 1
+				skipWS()
+				if pos < len(data) && data[pos] == ',' {
+					pos++
+					continue
+				}
+				if pos < len(data) && data[pos] == ']' {
+					break
+				}
+				return
+			}
+		default:
+			return
+		}
+	}
+
+	// If start node can be scanned as raw, prefer that.
+	if on, ok := node.(*objectNode); ok && !on.parsed.Load() && !on.isDirty && len(on.raw) > 0 {
+		recursiveScanBytes(on.raw, on.GetFuncs())
+		arr := NewArrayNode(nil, nil, node.GetFuncs())
+		arr.(*arrayNode).value = results
+		return arr
+	}
+	if an, ok := node.(*arrayNode); ok && !an.parsed.Load() && !an.isDirty && len(an.raw) > 0 {
+		recursiveScanBytes(an.raw, an.GetFuncs())
+		arr := NewArrayNode(nil, nil, node.GetFuncs())
+		arr.(*arrayNode).value = results
+		return arr
+	}
+
+	// fallback to original behavior for parsed/dirty nodes
 	var walk func(core.Node)
 	walk = func(n core.Node) {
 		if !n.IsValid() {
@@ -196,7 +385,6 @@ func recursiveSearch(node core.Node, key string) core.Node {
 			})
 		}
 	}
-
 	walk(node)
 	arr := NewArrayNode(nil, nil, node.GetFuncs())
 	arr.(*arrayNode).value = results
@@ -206,7 +394,9 @@ func recursiveSearch(node core.Node, key string) core.Node {
 // newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
 	// Try to get cached result first
-	if bn, ok := start.(interface{ getCachedQueryResult(string) (core.Node, bool) }); ok {
+	if bn, ok := start.(interface {
+		getCachedQueryResult(string) (core.Node, bool)
+	}); ok {
 		if cachedResult, exists := bn.getCachedQueryResult(path); exists {
 			return cachedResult
 		}
@@ -228,13 +418,17 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 		case OpKey:
 			key := t.Value.(string)
 			if a, ok := cur.(*arrayNode); ok {
+				// Try to use iterator to avoid fully parsing the array
+				it := a.Iter()
 				results := make([]core.Node, 0)
-				a.lazyParse() // 确保在访问前解析
-				for _, item := range a.value {
-					if item.Type() == core.Object {
-						res := item.Get(key)
-						if res.IsValid() {
-							results = append(results, res)
+				for it.Next() {
+					// prefer ParseValue() which works for parsed and raw modes
+					if elem := it.ParseValue(); elem.IsValid() {
+						if elem.Type() == core.Object {
+							res := elem.Get(key)
+							if res.IsValid() {
+								results = append(results, res)
+							}
 						}
 					}
 				}
@@ -297,13 +491,31 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 		case OpWildcard:
 			results := make([]core.Node, 0)
 			if o, ok := cur.(*objectNode); ok {
-				o.lazyParse() // 确保在访问前解析
-				for _, v := range o.value {
-					results = append(results, v)
+				// attempt raw-mode iteration to avoid full parse
+				it := o.Iter()
+				for it.Next() {
+					if child := it.ParseValue(); child.IsValid() {
+						results = append(results, child)
+					}
+				}
+				if err := it.Err(); err != nil {
+					// fallback to full parse if iterator failed
+					o.lazyParse()
+					for _, v := range o.value {
+						results = append(results, v)
+					}
 				}
 			} else if a, ok := cur.(*arrayNode); ok {
-				a.lazyParse() // 确保在访问前解析
-				results = a.value
+				it := a.Iter()
+				for it.Next() {
+					if child := it.ParseValue(); child.IsValid() {
+						results = append(results, child)
+					}
+				}
+				if err := it.Err(); err != nil {
+					a.lazyParse()
+					results = a.value
+				}
 			}
 			newArr := NewArrayNode(cur, nil, cur.GetFuncs())
 			newArr.(*arrayNode).value = results

@@ -28,7 +28,12 @@ func (n *arrayNode) Index(i int) core.Node {
 	if n.err != nil {
 		return n
 	}
-	n.lazyParse()
+	// 如果是负索引，先完整解析以确保长度
+	if i < 0 {
+		n.lazyParse()
+	} else {
+		n.lazyParsePath([]string{fmt.Sprintf("%d", i)})
+	}
 	if i < 0 {
 		i = len(n.value) + i
 	}
@@ -70,7 +75,7 @@ func (n *arrayNode) Set(key string, value interface{}) core.Node {
 			return n
 		}
 		n.value[idx] = child
-		
+
 		// Clear query cache since we're modifying the node
 		n.baseNode.clearQueryCache()
 	} else {
@@ -91,7 +96,7 @@ func (n *arrayNode) Append(value interface{}) core.Node {
 	}
 	n.lazyParse()
 	n.isDirty = true // Mark as dirty so String() will regenerate
-	
+
 	// Also mark all ancestors as dirty to ensure String() regeneration
 	current := n.parent
 	for current != nil {
@@ -105,7 +110,7 @@ func (n *arrayNode) Append(value interface{}) core.Node {
 			break
 		}
 	}
-	
+
 	// Clear query cache since we're modifying the node
 	n.baseNode.clearQueryCache()
 
@@ -205,17 +210,168 @@ func (n *arrayNode) lazyParse() {
 		return
 	}
 
-	// copy values
+	// copy values and reparent children to this node
 	if cast, ok := parsedNode.(*arrayNode); ok {
-		n.value = cast.value
+		vals := make([]core.Node, 0, len(cast.value))
+		for _, child := range cast.value {
+			if bn, ok := child.(*baseNode); ok {
+				bn.parent = n
+			} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+				inode.setParent(n)
+			}
+			vals = append(vals, child)
+		}
+		n.value = vals
 	}
+}
+
+// lazyParsePath parses only the nodes needed for a specific path
+func (n *arrayNode) lazyParsePath(path []string) {
+	if n.parsed.Load() {
+		return
+	}
+	if len(n.raw) == 0 {
+		n.parsed.Store(true)
+		return
+	}
+	if len(path) == 0 {
+		n.lazyParse()
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.parsed.Load() || n.isDirty {
+		return
+	}
+
+	// Check if we already have enough elements
+	idx, err := strconv.Atoi(path[0])
+	if err != nil {
+		n.lazyParse()
+		return
+	}
+
+	// For negative indices, we need to parse the entire array to know the length
+	if idx < 0 {
+		n.lazyParse()
+		return
+	}
+
+	// If we already have enough elements, no need to parse more
+	if idx < len(n.value) {
+		return
+	}
+	// We'll scan raw to parse elements one-by-one until we reach idx or the end.
+	raw := n.raw
+	// find opening bracket
+	pos := 0
+	for pos < len(raw) && raw[pos] != '[' {
+		pos++
+	}
+	if pos >= len(raw) {
+		n.lazyParse()
+		return
+	}
+	pos++ // skip '['
+
+	// helper to skip whitespace
+	skipWS := func() {
+		for pos < len(raw) {
+			c := raw[pos]
+			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+				pos++
+				continue
+			}
+			break
+		}
+	}
+
+	// initialize value slice if nil
+	if n.value == nil {
+		n.value = make([]core.Node, 0)
+	}
+
+	curIndex := len(n.value)
+	for pos < len(raw) {
+		skipWS()
+		if pos >= len(raw) {
+			break
+		}
+		if raw[pos] == ']' {
+			// end of array
+			n.parsed.Store(true)
+			return
+		}
+
+		// determine element end
+		elemStart := pos
+		var elemEnd int
+		switch raw[pos] {
+		case '{':
+			elemEnd = findMatchingBrace(raw, pos)
+		case '[':
+			elemEnd = findMatchingBracket(raw, pos)
+		case '"':
+			elemEnd = findMatchingQuote(raw, pos)
+		default:
+			elemEnd = findValueEnd(raw, pos)
+		}
+		if elemEnd == -1 {
+			n.lazyParse()
+			return
+		}
+
+		// parse this element
+		segment := raw[elemStart : elemEnd+1]
+		p := newParser(segment, n.funcs)
+		child := p.doParse(n)
+		if child == nil || !child.IsValid() {
+			if child != nil {
+				n.err = child.Error()
+			} else {
+				n.lazyParse()
+			}
+			return
+		}
+		// set proper parent
+		if bn, ok := child.(*baseNode); ok {
+			bn.parent = n
+		} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+			inode.setParent(n)
+		}
+		n.value = append(n.value, child)
+
+		// if we've reached the requested index, stop parsing further
+		if curIndex == idx {
+			return
+		}
+		curIndex++
+
+		// advance position
+		pos = elemEnd + 1
+		skipWS()
+		if pos < len(raw) && raw[pos] == ',' {
+			pos++
+			continue
+		}
+		if pos < len(raw) && raw[pos] == ']' {
+			n.parsed.Store(true)
+			return
+		}
+		// unexpected token -> fallback to full parse
+		n.lazyParse()
+		return
+	}
+
+	// if we reach here, we didn't find enough elements; parse full array to establish state
+	n.lazyParse()
 }
 
 func (n *arrayNode) addChild(child core.Node) {
 	if n.value == nil {
 		n.value = make([]core.Node, 0)
 	}
-	
+
 	// Instead of type assertion, we use the Parent() and SetParent() pattern
 	// All node types embed baseNode which has parent field
 	if bn, ok := child.(*baseNode); ok {
@@ -223,7 +379,7 @@ func (n *arrayNode) addChild(child core.Node) {
 	} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
 		inode.setParent(n)
 	}
-	
+
 	n.value = append(n.value, child)
 }
 

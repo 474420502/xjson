@@ -25,7 +25,7 @@ type baseNode struct {
 	// self holds the concrete node implementing core.Node to avoid losing
 	// the dynamic type when methods are promoted from the embedded baseNode.
 	self core.Node
-	
+
 	// query cache for performance optimization
 	queryCache map[string]core.Node
 	cacheMutex sync.RWMutex
@@ -35,11 +35,11 @@ type baseNode struct {
 func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
 	n.cacheMutex.RLock()
 	defer n.cacheMutex.RUnlock()
-	
+
 	if n.queryCache == nil {
 		return nil, false
 	}
-	
+
 	result, exists := n.queryCache[path]
 	return result, exists
 }
@@ -48,11 +48,11 @@ func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
 func (n *baseNode) setCachedQueryResult(path string, result core.Node) {
 	n.cacheMutex.Lock()
 	defer n.cacheMutex.Unlock()
-	
+
 	if n.queryCache == nil {
 		n.queryCache = make(map[string]core.Node)
 	}
-	
+
 	n.queryCache[path] = result
 }
 
@@ -60,9 +60,9 @@ func (n *baseNode) setCachedQueryResult(path string, result core.Node) {
 func (n *baseNode) clearQueryCache() {
 	n.cacheMutex.Lock()
 	defer n.cacheMutex.Unlock()
-	
+
 	n.queryCache = nil
-	
+
 	// Also clear cache of all ancestors
 	if n.parent != nil {
 		// Try to call clearQueryCache on the parent if it's a baseNode
@@ -150,13 +150,13 @@ func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
 	if n.err != nil {
 		return n.selfOrMe()
 	}
-	
+
 	// Parse the path into tokens
 	tokens, err := ParseQuery(path)
 	if err != nil {
 		return newInvalidNode(fmt.Errorf("invalid path: %v", err))
 	}
-	
+
 	// Navigate to the parent of the target node
 	current := n.selfOrMe()
 	for i := 0; i < len(tokens)-1; i++ {
@@ -167,7 +167,9 @@ func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
 				next := obj.Get(token.Value.(string))
 				if !next.IsValid() {
 					// Try to create intermediate object node
-					if _, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+					if _, ok := current.(interface {
+						Set(string, interface{}) core.Node
+					}); ok {
 						newObj := NewObjectNode(current, []byte("{}"), nil)
 						current = current.Set(token.Value.(string), newObj)
 						if !current.IsValid() {
@@ -197,19 +199,23 @@ func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
 			return newInvalidNode(fmt.Errorf("operation %v not supported in SetByPath", token.Op))
 		}
 	}
-	
+
 	// Set the value at the final token
 	if len(tokens) > 0 {
 		lastToken := tokens[len(tokens)-1]
 		switch lastToken.Op {
 		case OpKey:
-			if obj, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+			if obj, ok := current.(interface {
+				Set(string, interface{}) core.Node
+			}); ok {
 				return obj.Set(lastToken.Value.(string), value)
 			} else {
 				return newInvalidNode(fmt.Errorf("cannot set key on node type %s", current.Type()))
 			}
 		case OpIndex:
-			if arr, ok := current.(interface{ Set(string, interface{}) core.Node }); ok {
+			if arr, ok := current.(interface {
+				Set(string, interface{}) core.Node
+			}); ok {
 				return arr.Set(strconv.Itoa(lastToken.Value.(int)), value)
 			} else {
 				return newInvalidNode(fmt.Errorf("cannot set index on node type %s", current.Type()))
@@ -218,7 +224,7 @@ func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
 			return newInvalidNode(fmt.Errorf("operation %v not supported for setting value", lastToken.Op))
 		}
 	}
-	
+
 	return newInvalidNode(fmt.Errorf("empty path"))
 }
 
@@ -315,21 +321,55 @@ func (n *baseNode) Apply(fn core.PathFunc) core.Node {
 	return newInvalidNode(fmt.Errorf("apply not supported on type %s", n.Type()))
 }
 
-func (n *baseNode) String() string                  { return n.Raw() }
-func (n *baseNode) MustString() string              { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Float() float64                  { return 0 }
-func (n *baseNode) MustFloat() float64              { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Int() int64                      { return 0 }
-func (n *baseNode) MustInt() int64                  { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Bool() bool                      { return false }
-func (n *baseNode) MustBool() bool                  { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Time() time.Time                 { return time.Time{} }
-func (n *baseNode) MustTime() time.Time             { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Array() []core.Node              { return nil }
-func (n *baseNode) MustArray() []core.Node          { panic(core.ErrTypeAssertion) }
-func (n *baseNode) Interface() interface{}          { return nil }
-func (n *baseNode) RawFloat() (float64, bool)       { return 0, false }
-func (n *baseNode) RawString() (string, bool)       { s := n.Raw(); return s, true }
+func (n *baseNode) String() string         { return n.Raw() }
+func (n *baseNode) MustString() string     { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Float() float64         { return 0 }
+func (n *baseNode) MustFloat() float64     { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Int() int64             { return 0 }
+func (n *baseNode) MustInt() int64         { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Bool() bool             { return false }
+func (n *baseNode) MustBool() bool         { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Time() time.Time        { return time.Time{} }
+func (n *baseNode) MustTime() time.Time    { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Array() []core.Node     { return nil }
+func (n *baseNode) MustArray() []core.Node { panic(core.ErrTypeAssertion) }
+func (n *baseNode) Interface() interface{} { return nil }
+func (n *baseNode) RawFloat() (float64, bool) {
+	switch n.Type() {
+	case core.Number:
+		if nn, ok := n.self.(*numberNode); ok {
+			return nn.RawFloat()
+		}
+	case core.Bool:
+		return 0, false
+	case core.String:
+		return 0, false
+	case core.Null:
+		return 0, false
+	}
+	return 0, false
+}
+
+func (n *baseNode) RawString() (string, bool) {
+	switch n.Type() {
+	case core.Number:
+		if nn, ok := n.self.(*numberNode); ok {
+			return nn.RawString()
+		}
+	case core.Bool:
+		if bn, ok := n.self.(*boolNode); ok {
+			return bn.RawString()
+		}
+	case core.String:
+		if sn, ok := n.self.(*stringNode); ok {
+			return sn.RawString()
+		}
+	case core.Null:
+		return "null", true
+	}
+	// Default: return raw string representation and mark as available
+	return n.Raw(), true
+}
 func (n *baseNode) Strings() []string               { return []string{n.String()} }
 func (n *baseNode) Keys() []string                  { return nil }
 func (n *baseNode) Contains(value string) bool      { return n.String() == value }
