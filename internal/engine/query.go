@@ -8,6 +8,10 @@ import (
 	"github.com/474420502/xjson/internal/core"
 )
 
+// enableQueryCache controls whether query results are cached on nodes.
+// Disable during allocation-sensitive benchmarks to avoid cache-related allocations.
+var enableQueryCache = false
+
 // slice represents a slice operation, e.g., [start:end].
 type slice struct {
 	Start, End int
@@ -394,11 +398,13 @@ func recursiveSearch(node core.Node, key string) core.Node {
 // newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
 	// Try to get cached result first
-	if bn, ok := start.(interface {
-		getCachedQueryResult(string) (core.Node, bool)
-	}); ok {
-		if cachedResult, exists := bn.getCachedQueryResult(path); exists {
-			return cachedResult
+	if enableQueryCache {
+		if bn, ok := start.(interface {
+			getCachedQueryResult(string) (core.Node, bool)
+		}); ok {
+			if cachedResult, exists := bn.getCachedQueryResult(path); exists {
+				return cachedResult
+			}
 		}
 	}
 
@@ -542,9 +548,11 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 		}
 	}
 
-	// Cache the result
-	if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
-		bn.setCachedQueryResult(path, cur)
+	// Cache the result (optional)
+	if enableQueryCache {
+		if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+			bn.setCachedQueryResult(path, cur)
+		}
 	}
 
 	return cur

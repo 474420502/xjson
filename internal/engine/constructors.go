@@ -46,7 +46,29 @@ func NewStringNode(parent core.Node, val string, funcs *map[string]core.UnaryPat
 			parent: parent,
 			funcs:  funcs,
 		},
-		value: val,
+		value:         val,
+		decoded:       true,
+		needsUnescape: false,
+	}
+	n.baseNode.self = n
+	return n
+}
+
+// NewRawStringNode creates a string node from raw quoted bytes (including quotes).
+// start/end are indexes into raw for the unquoted value (start inclusive, end exclusive).
+// needsUnescape indicates whether the value contains escape sequences and must be unescaped when requested.
+func NewRawStringNode(parent core.Node, raw []byte, start int, end int, needsUnescape bool, funcs *map[string]core.UnaryPathFunc) core.Node {
+	n := &stringNode{
+		baseNode: baseNode{
+			raw:    raw,
+			parent: parent,
+			funcs:  funcs,
+			start:  start,
+			end:    end,
+		},
+		value:         "",
+		decoded:       false,
+		needsUnescape: needsUnescape,
 	}
 	n.baseNode.self = n
 	return n

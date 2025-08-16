@@ -12,18 +12,85 @@ import (
 // stringNode implementation
 type stringNode struct {
 	baseNode
+	// value holds the decoded string if decoded==true
 	value string
+	// decoded indicates whether value contains the decoded string
+	decoded bool
+	// needsUnescape indicates whether the raw bytes contain escape sequences
+	needsUnescape bool
+	// cachedDecoded stores decoded bytes when unescaped
+	cachedDecoded []byte
 }
 
 func (n *stringNode) Type() core.NodeType { return core.String }
-func (n *stringNode) String() string      { return n.value }
-func (n *stringNode) MustString() string  { return n.value }
+func (n *stringNode) String() string {
+	if n.err != nil {
+		return ""
+	}
+	if n.decoded {
+		return n.value
+	}
+	// need to construct string from raw bytes
+	s, _ := n.RawString()
+	return s
+}
+
+func (n *stringNode) MustString() string {
+	s := n.String()
+	if s == "" && n.err != nil {
+		panic(n.err)
+	}
+	return s
+}
+
 func (n *stringNode) RawString() (string, bool) {
+	if n.err != nil {
+		return "", false
+	}
+	// If already decoded and cached, return it
+	if n.decoded {
+		return n.value, true
+	}
+	// raw contains the quoted bytes; start/end point to unquoted region
+	s := n.raw
+	sstart := n.start
+	send := n.end
+	if sstart < 0 {
+		sstart = 0
+	}
+	if send == 0 || send > len(s) {
+		send = len(s)
+	}
+	if sstart > send {
+		return "", false
+	}
+
+	bytesRegion := s[sstart:send]
+	if !n.needsUnescape {
+		// direct conversion
+		str := string(bytesRegion)
+		n.value = str
+		n.decoded = true
+		return str, true
+	}
+	// perform unescape and cache
+	dec, err := unescape(bytesRegion)
+	if err != nil {
+		n.setError(err)
+		return "", false
+	}
+	n.cachedDecoded = dec
+	n.value = string(dec)
+	n.decoded = true
 	return n.value, true
 }
-func (n *stringNode) Contains(v string) bool { return n.value == v }
+func (n *stringNode) Contains(v string) bool {
+	s, _ := n.RawString()
+	return s == v
+}
 func (n *stringNode) Interface() interface{} {
-	return n.value
+	s, _ := n.RawString()
+	return s
 }
 
 func (n *stringNode) Set(key string, value interface{}) core.Node {
@@ -36,7 +103,11 @@ func (n *stringNode) SetByPath(path string, value interface{}) core.Node {
 }
 
 func (n *stringNode) Time() time.Time {
-	t, err := time.Parse(time.RFC3339Nano, n.value)
+	s, ok := n.RawString()
+	if !ok {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		n.setError(err)
 		return time.Time{}
@@ -45,7 +116,11 @@ func (n *stringNode) Time() time.Time {
 }
 
 func (n *stringNode) MustTime() time.Time {
-	t, err := time.Parse(time.RFC3339Nano, n.value)
+	s, ok := n.RawString()
+	if !ok {
+		panic("failed to get raw string for time parsing")
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		panic(err)
 	}

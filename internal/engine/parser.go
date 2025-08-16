@@ -170,15 +170,11 @@ func (p *parser) parseString(parent core.Node) core.Node {
 	}
 	p.pos = end + 1
 	raw := p.data[start:p.pos]
-	val, err := unescape(p.data[start+1 : end])
-	if err != nil {
-		return newInvalidNode(err)
-	}
-
-	node := NewStringNode(parent, string(val), p.funcs).(*stringNode)
-	node.raw = raw
-	node.start = 0
-	node.end = len(raw)
+	// Check if unescape is needed
+	needsUnescape := bytes.IndexByte(p.data[start+1:end], '\\') != -1
+	// start/end for unquoted region relative to raw slice
+	// raw[0] == '"', so unquoted starts at 1 and ends at len(raw)-1
+	node := NewRawStringNode(parent, raw, 1, len(raw)-1, needsUnescape, p.funcs).(*stringNode)
 	return node
 }
 
