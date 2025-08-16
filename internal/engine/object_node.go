@@ -9,6 +9,18 @@ import (
 	"github.com/474420502/xjson/internal/core"
 )
 
+// compareStringBytes compares a string with []byte without allocating
+func compareStringBytes(s string, b []byte) bool {
+	if len(s) != len(b) {
+		return false
+	}
+	if len(s) == 0 {
+		return true
+	}
+	// Use unsafe to compare without allocation
+	return s == unsafe.String(&b[0], len(b))
+}
+
 type objectNode struct {
 	baseNode
 	value      map[string]core.Node
@@ -425,7 +437,7 @@ func (n *objectNode) lazyParsePath(path []string) {
 		}
 	}
 
-	keyBytes := []byte(key)
+	// Use direct string comparison without []byte conversion
 
 	for pos < len(raw) {
 		skipWS()
@@ -452,12 +464,12 @@ func (n *objectNode) lazyParsePath(path []string) {
 		}
 		keyRaw := raw[pos+1 : keyEnd]
 
-		// Use byte comparison instead of creating strings
+		// Use direct string/byte comparison without allocation
 		var keyMatches bool
 		var keyStr string
 		if bytes.IndexByte(keyRaw, '\\') == -1 {
-			// No escapes, direct byte comparison and zero-copy string conversion
-			keyMatches = bytes.Equal(keyRaw, keyBytes)
+			// No escapes, direct comparison and zero-copy string conversion
+			keyMatches = compareStringBytes(key, keyRaw)
 			if keyMatches && len(keyRaw) > 0 {
 				keyStr = unsafe.String(&keyRaw[0], len(keyRaw))
 			}
@@ -469,7 +481,7 @@ func (n *objectNode) lazyParsePath(path []string) {
 				n.lazyParse()
 				return
 			}
-			keyMatches = bytes.Equal(keyUnesc, keyBytes)
+			keyMatches = compareStringBytes(key, keyUnesc)
 			if keyMatches && len(keyUnesc) > 0 {
 				keyStr = unsafe.String(&keyUnesc[0], len(keyUnesc))
 			}
@@ -511,9 +523,19 @@ func (n *objectNode) lazyParsePath(path []string) {
 		// If this is the key we want, parse only the value segment and attach
 		if keyMatches {
 			segment := raw[pos : valEnd+1]
-			p := newParser(segment, n.funcs)
-			// parse single value with parent set to this object
-			child := p.doParse(n)
+
+			// Fast path for string values to avoid parser creation overhead
+			var child core.Node
+			if len(segment) >= 2 && segment[0] == '"' && segment[len(segment)-1] == '"' {
+				// String value - use optimized string node creation
+				needsUnescape := bytes.IndexByte(segment[1:len(segment)-1], '\\') != -1
+				child = NewRawStringNode(n, segment, 1, len(segment)-1, needsUnescape, n.funcs)
+			} else {
+				// Other values - use parser
+				p := newParser(segment, n.funcs)
+				child = p.doParse(n)
+			}
+
 			if child == nil || !child.IsValid() {
 				if child != nil {
 					n.err = child.Error()
@@ -531,7 +553,7 @@ func (n *objectNode) lazyParsePath(path []string) {
 				inode.setParent(n)
 			}
 			if n.value == nil {
-				n.value = make(map[string]core.Node)
+				n.value = make(map[string]core.Node, 4) // Pre-allocate reasonable capacity
 			}
 			n.value[keyStr] = child
 			n.mu.Unlock()

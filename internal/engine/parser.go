@@ -296,7 +296,10 @@ func unescape(data []byte) ([]byte, error) {
 	if bytes.IndexByte(data, '\\') == -1 {
 		return data, nil
 	}
-	var buf bytes.Buffer
+
+	// Pre-allocate result slice to avoid reallocations
+	// In most cases, unescaped string will be same or shorter length
+	result := make([]byte, 0, len(data))
 	i := 0
 	for i < len(data) {
 		if data[i] == '\\' {
@@ -306,17 +309,17 @@ func unescape(data []byte) ([]byte, error) {
 			}
 			switch data[i] {
 			case '"', '\\', '/':
-				buf.WriteByte(data[i])
+				result = append(result, data[i])
 			case 'b':
-				buf.WriteByte('\b')
+				result = append(result, '\b')
 			case 'f':
-				buf.WriteByte('\f')
+				result = append(result, '\f')
 			case 'n':
-				buf.WriteByte('\n')
+				result = append(result, '\n')
 			case 'r':
-				buf.WriteByte('\r')
+				result = append(result, '\r')
 			case 't':
-				buf.WriteByte('\t')
+				result = append(result, '\t')
 			case 'u':
 				if i+4 >= len(data) {
 					return nil, fmt.Errorf("invalid unicode escape sequence: not enough digits")
@@ -325,15 +328,24 @@ func unescape(data []byte) ([]byte, error) {
 				if err != nil {
 					return nil, fmt.Errorf("invalid unicode escape sequence: %w", err)
 				}
-				buf.WriteRune(rune(val))
+				// Handle Unicode properly
+				r := rune(val)
+				if r <= 127 {
+					result = append(result, byte(r))
+				} else {
+					// Convert rune to UTF-8 bytes
+					utf8Bytes := make([]byte, 4)
+					n := copy(utf8Bytes, string(r))
+					result = append(result, utf8Bytes[:n]...)
+				}
 				i += 4
 			default:
 				return nil, fmt.Errorf("invalid escape character: %c", data[i])
 			}
 		} else {
-			buf.WriteByte(data[i])
+			result = append(result, data[i])
 		}
 		i++
 	}
-	return buf.Bytes(), nil
+	return result, nil
 }
