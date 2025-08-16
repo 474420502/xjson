@@ -17,7 +17,7 @@ func compareStringBytes(s string, b []byte) bool {
 	if len(s) == 0 {
 		return true
 	}
-	// Use unsafe to compare without allocation
+	// Use unsafe to compare without allocation - simple and effective
 	return s == unsafe.String(&b[0], len(b))
 }
 

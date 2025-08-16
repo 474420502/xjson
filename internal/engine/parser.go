@@ -349,3 +349,79 @@ func unescape(data []byte) ([]byte, error) {
 	}
 	return result, nil
 }
+
+// unescapeWithBuffer is an optimized version using provided buffer
+func unescapeWithBuffer(b []byte, bufPtr *[]byte) ([]byte, error) {
+	buf := *bufPtr
+
+	// Early exit if no escape sequences
+	if bytes.IndexByte(b, '\\') == -1 {
+		// No escapes - extend buffer and copy
+		if cap(buf) < len(b) {
+			buf = make([]byte, len(b))
+			*bufPtr = buf
+		} else {
+			buf = buf[:len(b)]
+		}
+		copy(buf, b)
+		return buf, nil
+	}
+
+	// Ensure buffer has sufficient capacity
+	if cap(buf) < len(b) {
+		buf = make([]byte, 0, len(b))
+		*bufPtr = buf
+	} else {
+		buf = buf[:0]
+	}
+
+	for i := 0; i < len(b); i++ {
+		if b[i] != '\\' {
+			buf = append(buf, b[i])
+			continue
+		}
+		if i == len(b)-1 {
+			return nil, fmt.Errorf("invalid escape at end of string")
+		}
+
+		switch b[i+1] {
+		case '"':
+			buf = append(buf, '"')
+		case '\\':
+			buf = append(buf, '\\')
+		case '/':
+			buf = append(buf, '/')
+		case 'b':
+			buf = append(buf, '\b')
+		case 'f':
+			buf = append(buf, '\f')
+		case 'n':
+			buf = append(buf, '\n')
+		case 'r':
+			buf = append(buf, '\r')
+		case 't':
+			buf = append(buf, '\t')
+		case 'u':
+			if i+5 >= len(b) {
+				return nil, fmt.Errorf("invalid unicode escape")
+			}
+			hex := string(b[i+2 : i+6])
+			codePoint, err := strconv.ParseUint(hex, 16, 16)
+			if err != nil {
+				return nil, fmt.Errorf("invalid unicode escape: %s", hex)
+			}
+			if codePoint < 128 {
+				buf = append(buf, byte(codePoint))
+			} else {
+				buf = append(buf, []byte(string(rune(codePoint)))...)
+			}
+			i += 4
+		default:
+			return nil, fmt.Errorf("invalid escape character: %c", b[i+1])
+		}
+		i++
+	}
+
+	*bufPtr = buf
+	return buf, nil
+}

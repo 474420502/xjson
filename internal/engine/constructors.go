@@ -20,7 +20,7 @@ func NewObjectNode(parent core.Node, raw []byte, funcs *map[string]core.UnaryPat
 			parent: parent,
 			funcs:  funcs,
 		},
-		value: make(map[string]core.Node, 4), // Pre-allocate reasonable capacity
+		// Don't pre-allocate map - allocate only when needed to reduce memory pressure
 	}
 	n.baseNode.self = n
 	return n
