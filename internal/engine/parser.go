@@ -59,6 +59,54 @@ func (p *parser) doParse(parent core.Node) core.Node {
 func (p *parser) parseObject(parent core.Node) core.Node {
 	start := p.pos
 	p.pos++ // skip '{'
+
+	// Find the end of the object without parsing content
+	braceCount := 1
+	inString := false
+	escaped := false
+
+	for p.pos < len(p.data) && braceCount > 0 {
+		c := p.data[p.pos]
+
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+		} else {
+			switch c {
+			case '"':
+				inString = true
+			case '{':
+				braceCount++
+			case '}':
+				braceCount--
+			}
+		}
+		p.pos++
+	}
+
+	if braceCount > 0 {
+		return newInvalidNode(fmt.Errorf("unterminated object"))
+	}
+
+	raw := p.data[start:p.pos]
+	node := NewObjectNode(parent, raw, p.funcs).(*objectNode)
+	node.start = 0
+	node.end = len(raw)
+	// Mark as not yet parsed for lazy evaluation
+	node.value = nil
+	node.isDirty = false
+	return node
+}
+
+// parseObjectFull parses object content immediately (for lazyParse)
+func (p *parser) parseObjectFull(parent core.Node) core.Node {
+	start := p.pos
+	p.pos++ // skip '{'
 	p.skipWhitespace()
 
 	node := NewObjectNode(parent, nil, p.funcs).(*objectNode)
@@ -88,6 +136,10 @@ func (p *parser) parseObject(parent core.Node) core.Node {
 		valueNode := p.parseValue(node)
 		if !valueNode.IsValid() {
 			return valueNode
+		}
+
+		if node.value == nil {
+			node.value = make(map[string]core.Node)
 		}
 		node.value[key] = valueNode
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"unsafe"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -348,7 +349,7 @@ func (n *objectNode) lazyParse() {
 	if n.parent != nil {
 		parent = n
 	}
-	parsedNode := p.parseObject(parent)
+	parsedNode := p.parseObjectFull(parent)
 	if err := parsedNode.Error(); err != nil {
 		n.err = err
 		return
@@ -390,9 +391,11 @@ func (n *objectNode) lazyParsePath(path []string) {
 
 	// Check if we already have the key
 	key := path[0]
-	if _, ok := n.value[key]; ok {
-		n.mu.Unlock()
-		return
+	if n.value != nil {
+		if _, ok := n.value[key]; ok {
+			n.mu.Unlock()
+			return
+		}
 	}
 
 	// Try to find and parse only the requested key by scanning the raw object
@@ -422,6 +425,8 @@ func (n *objectNode) lazyParsePath(path []string) {
 		}
 	}
 
+	keyBytes := []byte(key)
+
 	for pos < len(raw) {
 		skipWS()
 		if pos >= len(raw) {
@@ -446,13 +451,30 @@ func (n *objectNode) lazyParsePath(path []string) {
 			return
 		}
 		keyRaw := raw[pos+1 : keyEnd]
-		keyUnesc, err := unescape(keyRaw)
-		if err != nil {
-			n.err = err
-			n.mu.Unlock()
-			return
+
+		// Use byte comparison instead of creating strings
+		var keyMatches bool
+		var keyStr string
+		if bytes.IndexByte(keyRaw, '\\') == -1 {
+			// No escapes, direct byte comparison and zero-copy string conversion
+			keyMatches = bytes.Equal(keyRaw, keyBytes)
+			if keyMatches && len(keyRaw) > 0 {
+				keyStr = unsafe.String(&keyRaw[0], len(keyRaw))
+			}
+		} else {
+			// Has escapes, need to unescape for comparison
+			keyUnesc, err := unescape(keyRaw)
+			if err != nil {
+				n.mu.Unlock()
+				n.lazyParse()
+				return
+			}
+			keyMatches = bytes.Equal(keyUnesc, keyBytes)
+			if keyMatches && len(keyUnesc) > 0 {
+				keyStr = unsafe.String(&keyUnesc[0], len(keyUnesc))
+			}
 		}
-		keyStr := string(keyUnesc)
+
 		pos = keyEnd + 1
 		skipWS()
 		if pos >= len(raw) || raw[pos] != ':' {
@@ -487,7 +509,7 @@ func (n *objectNode) lazyParsePath(path []string) {
 		}
 
 		// If this is the key we want, parse only the value segment and attach
-		if keyStr == key {
+		if keyMatches {
 			segment := raw[pos : valEnd+1]
 			p := newParser(segment, n.funcs)
 			// parse single value with parent set to this object
@@ -511,7 +533,7 @@ func (n *objectNode) lazyParsePath(path []string) {
 			if n.value == nil {
 				n.value = make(map[string]core.Node)
 			}
-			n.value[key] = child
+			n.value[keyStr] = child
 			n.mu.Unlock()
 			return
 		}

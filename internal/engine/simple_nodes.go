@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -67,8 +68,8 @@ func (n *stringNode) RawString() (string, bool) {
 
 	bytesRegion := s[sstart:send]
 	if !n.needsUnescape {
-		// direct conversion
-		str := string(bytesRegion)
+		// Zero-copy string conversion using unsafe
+		str := unsafe.String(&bytesRegion[0], len(bytesRegion))
 		n.value = str
 		n.decoded = true
 		return str, true
@@ -80,7 +81,7 @@ func (n *stringNode) RawString() (string, bool) {
 		return "", false
 	}
 	n.cachedDecoded = dec
-	n.value = string(dec)
+	n.value = unsafe.String(&dec[0], len(dec))
 	n.decoded = true
 	return n.value, true
 }
