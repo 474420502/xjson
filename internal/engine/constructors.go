@@ -116,6 +116,10 @@ func NewNodeFromInterface(parent core.Node, v interface{}, funcs *map[string]cor
 	case map[string]interface{}:
 		node := NewObjectNode(parent, nil, funcs).(*objectNode)
 		node.isDirty = true
+		// Ensure the map is initialized before writing to it to avoid panics
+		if node.value == nil {
+			node.value = make(map[string]core.Node)
+		}
 		for key, value := range val {
 			child := NewNodeFromInterface(node, value, funcs)
 			if !child.IsValid() {
