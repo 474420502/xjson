@@ -46,7 +46,7 @@ func (n *objectNode) Get(key string) core.Node {
 	if child, ok := n.value[key]; ok {
 		return child
 	}
-	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+	return sharedInvalidNode()
 }
 
 // GetWithPath gets a child node with path information for lazy loading
@@ -60,7 +60,7 @@ func (n *objectNode) GetWithPath(key string, path []string) core.Node {
 	if child, ok := n.value[key]; ok {
 		return child
 	}
-	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+	return sharedInvalidNode()
 }
 
 // LazyGet 实现真正的懒加载获取
@@ -72,7 +72,7 @@ func (n *objectNode) LazyGet(key string) core.Node {
 	if child, ok := n.value[key]; ok {
 		return child
 	}
-	return newInvalidNode(fmt.Errorf("key not found: %s", key))
+	return sharedInvalidNode()
 }
 
 // 辅助函数：查找匹配的大括号

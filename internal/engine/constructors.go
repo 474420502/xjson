@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"strconv"
+	"unsafe"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -69,6 +70,31 @@ func NewRawStringNode(parent core.Node, raw []byte, start int, end int, needsUne
 		value:         "",
 		decoded:       false,
 		needsUnescape: needsUnescape,
+	}
+	n.baseNode.self = n
+	return n
+}
+
+// NewDecodedStringNode creates a string node from an already-unescaped byte slice.
+// The provided bytes will be owned by the node (caller should not mutate it).
+func NewDecodedStringNode(parent core.Node, decoded []byte, funcs *map[string]core.UnaryPathFunc) core.Node {
+	n := &stringNode{
+		baseNode: baseNode{
+			raw:    nil,
+			parent: parent,
+			funcs:  funcs,
+			start:  0,
+			end:    0,
+		},
+		value:         "",
+		decoded:       true,
+		needsUnescape: false,
+		cachedDecoded: decoded,
+	}
+	if len(decoded) > 0 {
+		n.value = unsafe.String(&decoded[0], len(decoded))
+	} else {
+		n.value = ""
 	}
 	n.baseNode.self = n
 	return n

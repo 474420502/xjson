@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -39,6 +40,12 @@ type QueryToken struct {
 
 // ParseQuery tokenizes a query path into a sequence of operations.
 func ParseQuery(path string) ([]QueryToken, error) {
+	// Lightweight cache to avoid repeated tokenization allocations for the
+	// same path string. Safe to share the returned slice as tokens are
+	// treated immutably after creation.
+	if cached, ok := queryTokenCache.Load(path); ok {
+		return cached.([]QueryToken), nil
+	}
 	if path == "" || path == "/" {
 		return []QueryToken{}, nil
 	}
@@ -153,8 +160,14 @@ func ParseQuery(path string) ([]QueryToken, error) {
 		}
 		p = nextSep
 	}
+	// store a copy in cache for later reuse
+	queryTokenCache.Store(path, tokens)
 	return tokens, nil
 }
+
+// queryTokenCache stores parsed tokens for path strings to reduce
+// allocations for repeated queries.
+var queryTokenCache sync.Map // map[string][]QueryToken
 
 func findNextSeparator(path string, start int) int {
 	for i := start; i < len(path); i++ {
@@ -218,8 +231,13 @@ func recursiveSearch(node core.Node, key string) core.Node {
 			if objEnd == -1 {
 				return
 			}
+			// lazily allocate a temporary parent node only when we need it.
+			// We keep the raw parent slice so the parser can set correct
+			// Parent() pointers on children when a match is found. This
+			// avoids allocating for every scanned object while preserving
+			// parent linkage when required by callers/tests.
 			parentRaw := data[pos : objEnd+1]
-			parentNode := NewObjectNode(nil, parentRaw, funcs)
+			var parentNode core.Node = nil
 			pos++ // skip '{'
 			skipWS := func() {
 				for pos < len(data) {
@@ -277,6 +295,10 @@ func recursiveSearch(node core.Node, key string) core.Node {
 				// if key matches, parse value and append
 				if key == "" || key == keyStr {
 					segment := data[pos : valEnd+1]
+					// allocate parentNode lazily so Parent() can be set on child
+					if parentNode == nil {
+						parentNode = NewObjectNode(nil, parentRaw, funcs)
+					}
 					p := newParser(segment, funcs)
 					// parse with parentNode so that Parent() works for the child
 					child := p.doParse(parentNode)
@@ -398,6 +420,7 @@ func recursiveSearch(node core.Node, key string) core.Node {
 
 // newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
+	// DEBUG: observe query flow
 	// Try a conservative fast-path for simple slash-separated key paths
 	if res := tryFastSlashQuery(start, path); res != nil {
 		return res
@@ -414,6 +437,9 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 	}
 
 	tokens, err := ParseQuery(path)
+	if err == nil {
+		fmt.Printf("applySimpleQuery: tokens=%#v path=%q\n", tokens, path)
+	}
 	if err != nil {
 		return newInvalidNode(err)
 	}
@@ -559,6 +585,7 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			bn.setCachedQueryResult(path, cur)
 		}
 	}
+	fmt.Printf("applySimpleQuery: returning cur valid=%v path=%q\n", cur.IsValid(), path)
 
 	return cur
 }
@@ -567,18 +594,30 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 // slash-separated key lookups like "a/b/c" when nodes are still in raw form.
 // Returns nil if the path is not eligible or fast path couldn't resolve.
 func tryFastSlashQuery(start core.Node, path string) core.Node {
+	// DEBUG LOGGING - remove after diagnosis
+	// fmt.Printf("tryFastSlashQuery path=%q startType=%v\n", path, start.Type())
 	if path == "" || strings.ContainsAny(path, "[]*@.") || strings.Contains(path, "//") || strings.HasPrefix(path, "../") {
 		return nil
 	}
 
-	// remove leading slashes to support paths like "/a/b"
-	trimmed := strings.TrimLeft(path, "/")
-	if trimmed == "" {
+	// Manual scan of path components to avoid allocations from TrimLeft and Split.
+	// This preserves behavior for leading/trailing slashes.
+	p := 0
+	for p < len(path) && path[p] == '/' {
+		p++
+	}
+	if p >= len(path) {
 		return start
 	}
-	parts := strings.Split(trimmed, "/")
 	cur := start
-	for i, part := range parts {
+	partIndex := 0
+	for p < len(path) {
+		// find next separator
+		q := p
+		for q < len(path) && path[q] != '/' {
+			q++
+		}
+		part := path[p:q]
 		if !cur.IsValid() {
 			return newInvalidNode(fmt.Errorf("invalid during fast-path"))
 		}
@@ -588,9 +627,19 @@ func tryFastSlashQuery(start core.Node, path string) core.Node {
 		}
 		// Only handle object nodes in raw/unparsed state or already parsed
 		if o, ok := cur.(*objectNode); ok && !o.isDirty {
+
 			// If parsed already, use standard Get
 			if o.parsed.Load() {
 				cur = o.Get(part)
+				// advance to next part
+				if q >= len(path) {
+					return cur
+				}
+				partIndex++
+				p = q + 1
+				for p < len(path) && path[p] == '/' {
+					p++
+				}
 				continue
 			}
 			// raw scan for key
@@ -607,6 +656,15 @@ func tryFastSlashQuery(start core.Node, path string) core.Node {
 				if child, ok := o.value[part]; ok {
 					o.mu.Unlock()
 					cur = child
+					// advance to next part
+					if q >= len(path) {
+						return cur
+					}
+					partIndex++
+					p = q + 1
+					for p < len(path) && path[p] == '/' {
+						p++
+					}
 					continue
 				}
 			}
@@ -696,7 +754,7 @@ func tryFastSlashQuery(start core.Node, path string) core.Node {
 					// store into parent so subsequent operations and String() see it
 					o.value[part] = child
 					o.mu.Unlock()
-					if i == len(parts)-1 {
+					if q >= len(path) {
 						return child
 					}
 					cur = child
@@ -751,7 +809,16 @@ func tryFastSlashQuery(start core.Node, path string) core.Node {
 			}
 			if !found {
 				o.mu.Unlock()
-				return newInvalidNode(fmt.Errorf("key not found: %s", part))
+				return sharedInvalidNode()
+			}
+			partIndex++
+			if q >= len(path) {
+				break
+			}
+			p = q + 1
+			// skip consecutive slashes
+			for p < len(path) && path[p] == '/' {
+				p++
 			}
 		} else {
 			// not object node or not supported fast path, bail out

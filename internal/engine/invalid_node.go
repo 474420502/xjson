@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"time"
 
 	"github.com/474420502/xjson/internal/core"
@@ -9,6 +10,23 @@ import (
 // invalidNode represents a node in an error state.
 type invalidNode struct {
 	baseNode
+}
+
+// sharedInvalid is a singleton invalid node used for common error returns to
+// avoid repeated allocations for identical, non-informative error values in
+// hot paths. It carries a generic error message and is safe to reuse since
+// invalidNode is immutable from the public API perspective.
+var sharedInvalid *invalidNode
+
+func init() {
+	sharedInvalid = &invalidNode{baseNode: baseNode{err: errors.New("invalid node")}}
+	sharedInvalid.baseNode.self = sharedInvalid
+}
+
+// sharedInvalidNode returns a reusable invalid node instance. Use this in
+// hot paths where allocating a distinct error message isn't necessary.
+func sharedInvalidNode() core.Node {
+	return sharedInvalid
 }
 
 func (n *invalidNode) Parent() core.Node {
@@ -31,7 +49,7 @@ func (n *invalidNode) SetByPath(path string, value interface{}) core.Node {
 	return n
 }
 
-func (n *invalidNode) Append(value interface{}) core.Node                       { return n }
+func (n *invalidNode) Append(value interface{}) core.Node { return n }
 
 func (n *invalidNode) String() string                  { return "invalid" }
 func (n *invalidNode) MustString() string              { panic(n.err) }

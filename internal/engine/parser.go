@@ -12,10 +12,11 @@ type parser struct {
 	data  []byte
 	pos   int
 	funcs *map[string]core.UnaryPathFunc
+	buf   []byte // reusable buffer for unescape operations
 }
 
 func newParser(data []byte, funcs *map[string]core.UnaryPathFunc) *parser {
-	return &parser{data: data, funcs: funcs}
+	return &parser{data: data, funcs: funcs, buf: nil}
 }
 
 func (p *parser) Parse() (core.Node, error) {
@@ -112,6 +113,11 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 	node := NewObjectNode(parent, nil, p.funcs).(*objectNode)
 	node.isDirty = true
 
+	// Try to pre-count fields to pre-allocate map capacity and reduce allocations
+	if cnt := countObjectFields(p.data, start); cnt >= 0 {
+		node.value = make(map[string]core.Node, cnt)
+	}
+
 	for p.pos < len(p.data) {
 		if p.data[p.pos] == '}' {
 			p.pos++
@@ -170,6 +176,11 @@ func (p *parser) parseArray(parent core.Node) core.Node {
 	node := NewArrayNode(parent, nil, p.funcs).(*arrayNode)
 	node.isDirty = true
 
+	// Try to pre-count elements to pre-allocate slice capacity and reduce allocations
+	if cnt := countArrayElements(p.data, start); cnt >= 0 {
+		node.value = make([]core.Node, 0, cnt)
+	}
+
 	for p.pos < len(p.data) {
 		if p.data[p.pos] == ']' {
 			p.pos++
@@ -224,9 +235,20 @@ func (p *parser) parseString(parent core.Node) core.Node {
 	raw := p.data[start:p.pos]
 	// Check if unescape is needed
 	needsUnescape := bytes.IndexByte(p.data[start+1:end], '\\') != -1
+	// If unescape is needed, use p.buf to avoid allocations when producing unescaped bytes
+	if needsUnescape {
+		unesc, err := unescapeWithBuffer(p.data[start+1:end], &p.buf)
+		if err != nil {
+			return newInvalidNode(err)
+		}
+		// create string node from unescaped bytes without allocating a separate string
+		node := NewDecodedStringNode(parent, unesc, p.funcs).(*stringNode)
+		return node
+	}
+
 	// start/end for unquoted region relative to raw slice
 	// raw[0] == '"', so unquoted starts at 1 and ends at len(raw)-1
-	node := NewRawStringNode(parent, raw, 1, len(raw)-1, needsUnescape, p.funcs).(*stringNode)
+	node := NewRawStringNode(parent, raw, 1, len(raw)-1, false, p.funcs).(*stringNode)
 	return node
 }
 
@@ -424,4 +446,111 @@ func unescapeWithBuffer(b []byte, bufPtr *[]byte) ([]byte, error) {
 
 	*bufPtr = buf
 	return buf, nil
+}
+
+// countObjectFields returns an estimated number of top-level fields for the object
+// starting at position 'start' (the index of '{'). Returns -1 if malformed.
+func countObjectFields(data []byte, start int) int {
+	if start >= len(data) || data[start] != '{' {
+		return -1
+	}
+	pos := start + 1
+	// skip leading whitespace
+	for pos < len(data) && (data[pos] == ' ' || data[pos] == '\n' || data[pos] == '\r' || data[pos] == '\t') {
+		pos++
+	}
+	if pos < len(data) && data[pos] == '}' {
+		return 0
+	}
+	count := 0
+	level := 1
+	inString := false
+	escaped := false
+	for pos < len(data) && level > 0 {
+		c := data[pos]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+		} else {
+			switch c {
+			case '"':
+				inString = true
+			case '{':
+				level++
+			case '}':
+				level--
+				if level == 0 {
+					return count
+				}
+			case ',':
+				// only count commas at top-level (level==1)
+				if level == 1 {
+					count++
+				}
+			}
+		}
+		pos++
+	}
+	if level != 0 {
+		return -1
+	}
+	return count + 1
+}
+
+// countArrayElements returns an estimated number of top-level elements for the array
+// starting at position 'start' (the index of '['). Returns -1 if malformed.
+func countArrayElements(data []byte, start int) int {
+	if start >= len(data) || data[start] != '[' {
+		return -1
+	}
+	pos := start + 1
+	// skip whitespace
+	for pos < len(data) && (data[pos] == ' ' || data[pos] == '\n' || data[pos] == '\r' || data[pos] == '\t') {
+		pos++
+	}
+	if pos < len(data) && data[pos] == ']' {
+		return 0
+	}
+	count := 0
+	level := 1
+	inString := false
+	escaped := false
+	for pos < len(data) && level > 0 {
+		c := data[pos]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+		} else {
+			switch c {
+			case '"':
+				inString = true
+			case '[':
+				level++
+			case ']':
+				level--
+				if level == 0 {
+					return count
+				}
+			case ',':
+				if level == 1 {
+					count++
+				}
+			}
+		}
+		pos++
+	}
+	if level != 0 {
+		return -1
+	}
+	return count + 1
 }
