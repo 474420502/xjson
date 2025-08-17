@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -397,6 +398,10 @@ func recursiveSearch(node core.Node, key string) core.Node {
 
 // newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
+	// Try a conservative fast-path for simple slash-separated key paths
+	if res := tryFastSlashQuery(start, path); res != nil {
+		return res
+	}
 	// Try to get cached result first
 	if enableQueryCache {
 		if bn, ok := start.(interface {
@@ -556,4 +561,202 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 	}
 
 	return cur
+}
+
+// tryFastSlashQuery attempts a zero-allocation fast path for very simple
+// slash-separated key lookups like "a/b/c" when nodes are still in raw form.
+// Returns nil if the path is not eligible or fast path couldn't resolve.
+func tryFastSlashQuery(start core.Node, path string) core.Node {
+	if path == "" || strings.ContainsAny(path, "[]*@.") || strings.Contains(path, "//") || strings.HasPrefix(path, "../") {
+		return nil
+	}
+
+	// remove leading slashes to support paths like "/a/b"
+	trimmed := strings.TrimLeft(path, "/")
+	if trimmed == "" {
+		return start
+	}
+	parts := strings.Split(trimmed, "/")
+	cur := start
+	for i, part := range parts {
+		if !cur.IsValid() {
+			return newInvalidNode(fmt.Errorf("invalid during fast-path"))
+		}
+		if part == "" {
+			// skip empty segments (shouldn't happen after trimming, but be defensive)
+			continue
+		}
+		// Only handle object nodes in raw/unparsed state or already parsed
+		if o, ok := cur.(*objectNode); ok && !o.isDirty {
+			// If parsed already, use standard Get
+			if o.parsed.Load() {
+				cur = o.Get(part)
+				continue
+			}
+			// raw scan for key
+			raw := o.raw
+			// acquire lock similar to lazyParsePath to safely inspect/modify value
+			o.mu.Lock()
+			// re-check parsed and existing map under lock
+			if o.parsed.Load() {
+				o.mu.Unlock()
+				cur = o.Get(part)
+				continue
+			}
+			if o.value != nil {
+				if child, ok := o.value[part]; ok {
+					o.mu.Unlock()
+					cur = child
+					continue
+				}
+			}
+			if len(raw) == 0 {
+				return nil
+			}
+			// find key in raw using similar logic to lazyParsePath
+			pos := 0
+			for pos < len(raw) && raw[pos] != '{' {
+				pos++
+			}
+			if pos >= len(raw) {
+				return nil
+			}
+			pos++
+			found := false
+			for pos < len(raw) {
+				// skip ws
+				for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+					pos++
+				}
+				if pos >= len(raw) || raw[pos] == '}' {
+					break
+				}
+				if raw[pos] != '"' {
+					return nil
+				}
+				keyEnd := findMatchingQuote(raw, pos)
+				if keyEnd == -1 {
+					return nil
+				}
+				keyRaw := raw[pos+1 : keyEnd]
+				// compare quickly without unescaping
+				if bytes.IndexByte(keyRaw, '\\') == -1 && compareStringBytes(part, keyRaw) {
+					// found — parse value segment and set cur
+					pos = keyEnd + 1
+					// skip ws and colon
+					for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+						pos++
+					}
+					if pos >= len(raw) || raw[pos] != ':' {
+						return nil
+					}
+					pos++
+					for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+						pos++
+					}
+					if pos >= len(raw) {
+						return nil
+					}
+					var valEnd int
+					switch raw[pos] {
+					case '{':
+						valEnd = findMatchingBrace(raw, pos)
+					case '[':
+						valEnd = findMatchingBracket(raw, pos)
+					case '"':
+						valEnd = findMatchingQuote(raw, pos)
+					default:
+						valEnd = findValueEnd(raw, pos)
+					}
+					if valEnd == -1 {
+						return nil
+					}
+					segment := raw[pos : valEnd+1]
+					var child core.Node
+					if len(segment) >= 2 && segment[0] == '"' && segment[len(segment)-1] == '"' {
+						needsUnescape := bytes.IndexByte(segment[1:len(segment)-1], '\\') != -1
+						child = NewRawStringNode(o, segment, 1, len(segment)-1, needsUnescape, o.funcs)
+					} else {
+						p := newParser(segment, o.funcs)
+						child = p.doParse(o)
+					}
+					if child == nil || !child.IsValid() {
+						o.mu.Unlock()
+						return nil
+					}
+					// ensure parent pointer is correct
+					if bn, ok := child.(*baseNode); ok {
+						bn.parent = o
+					} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+						inode.setParent(o)
+					}
+					if o.value == nil {
+						o.value = make(map[string]core.Node, 4)
+					}
+					// store into parent so subsequent operations and String() see it
+					o.value[part] = child
+					o.mu.Unlock()
+					if i == len(parts)-1 {
+						return child
+					}
+					cur = child
+					found = true
+					break
+				}
+				// skip to after value
+				pos = keyEnd + 1
+				// skip ws and colon
+				for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+					pos++
+				}
+				if pos >= len(raw) || raw[pos] != ':' {
+					return nil
+				}
+				pos++
+				for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+					pos++
+				}
+				if pos >= len(raw) {
+					return nil
+				}
+				var valEnd2 int
+				switch raw[pos] {
+				case '{':
+					valEnd2 = findMatchingBrace(raw, pos)
+				case '[':
+					valEnd2 = findMatchingBracket(raw, pos)
+				case '"':
+					valEnd2 = findMatchingQuote(raw, pos)
+				default:
+					valEnd2 = findValueEnd(raw, pos)
+				}
+				if valEnd2 == -1 {
+					o.mu.Unlock()
+					return nil
+				}
+				pos = valEnd2 + 1
+				// skip comma or end
+				for pos < len(raw) && (raw[pos] == ' ' || raw[pos] == '\n' || raw[pos] == '\r' || raw[pos] == '\t') {
+					pos++
+				}
+				if pos < len(raw) && raw[pos] == ',' {
+					pos++
+					continue
+				}
+				if pos < len(raw) && raw[pos] == '}' {
+					break
+				}
+				o.mu.Unlock()
+				return nil
+			}
+			if !found {
+				o.mu.Unlock()
+				return newInvalidNode(fmt.Errorf("key not found: %s", part))
+			}
+		} else {
+			// not object node or not supported fast path, bail out
+			return nil
+		}
+	}
+	return nil
 }
