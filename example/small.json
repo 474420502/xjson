@@ -1,0 +1,34 @@
+{
+    "store": {
+        "books": [
+            {
+                "title": "Moby Dick",
+                "price": 8.99,
+                "tags": [
+                    "classic",
+                    "adventure"
+                ]
+            },
+            {
+                "title": "Clean Code",
+                "price": 29.99,
+                "tags": [
+                    "programming"
+                ]
+            }
+        ],
+        "electronics": {
+            "phones": [
+                {
+                    "title": "iPhone",
+                    "price": 999.99
+                }
+            ]
+        }
+    },
+    "prices": [
+        1.99,
+        5.99,
+        10.99
+    ]
+}

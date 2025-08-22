@@ -437,9 +437,7 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 	}
 
 	tokens, err := ParseQuery(path)
-	if err == nil {
-		fmt.Printf("applySimpleQuery: tokens=%#v path=%q\n", tokens, path)
-	}
+
 	if err != nil {
 		return newInvalidNode(err)
 	}
@@ -585,7 +583,6 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			bn.setCachedQueryResult(path, cur)
 		}
 	}
-	fmt.Printf("applySimpleQuery: returning cur valid=%v path=%q\n", cur.IsValid(), path)
 
 	return cur
 }
