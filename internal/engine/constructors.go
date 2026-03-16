@@ -113,9 +113,13 @@ func NewNumberNode(parent core.Node, raw []byte, funcs *map[string]core.UnaryPat
 }
 
 func NewBoolNode(parent core.Node, val bool, funcs *map[string]core.UnaryPathFunc) core.Node {
+	raw := falseRawBytes
+	if val {
+		raw = trueRawBytes
+	}
 	n := &boolNode{
 		baseNode: baseNode{
-			raw:    []byte(strconv.FormatBool(val)),
+			raw:    raw,
 			parent: parent,
 			funcs:  funcs,
 		},

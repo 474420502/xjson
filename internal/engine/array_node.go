@@ -28,11 +28,20 @@ func (n *arrayNode) Index(i int) core.Node {
 	if n.err != nil {
 		return n
 	}
+	if n.parsed.Load() || len(n.raw) == 0 {
+		if i < 0 {
+			i = len(n.value) + i
+		}
+		if i >= 0 && i < len(n.value) {
+			return n.value[i]
+		}
+		return newInvalidNode(fmt.Errorf("index out of bounds: %d", i))
+	}
 	// 如果是负索引，先完整解析以确保长度
 	if i < 0 {
 		n.lazyParse()
 	} else {
-		n.lazyParsePath([]string{fmt.Sprintf("%d", i)})
+		n.lazyParseIndex(i)
 	}
 	if i < 0 {
 		i = len(n.value) + i
@@ -41,6 +50,132 @@ func (n *arrayNode) Index(i int) core.Node {
 		return n.value[i]
 	}
 	return newInvalidNode(fmt.Errorf("index out of bounds: %d", i))
+}
+
+func (n *arrayNode) lazyParseIndex(idx int) {
+	if n.parsed.Load() {
+		return
+	}
+	if len(n.raw) == 0 {
+		n.parsed.Store(true)
+		return
+	}
+	if idx < 0 {
+		n.lazyParse()
+		return
+	}
+
+	n.mu.Lock()
+	if n.parsed.Load() || n.isDirty {
+		n.mu.Unlock()
+		return
+	}
+
+	if idx < len(n.value) {
+		n.mu.Unlock()
+		return
+	}
+
+	raw := n.raw
+	pos := 0
+	for pos < len(raw) && raw[pos] != '[' {
+		pos++
+	}
+	if pos >= len(raw) {
+		n.mu.Unlock()
+		n.lazyParse()
+		return
+	}
+	pos++
+
+	skipWS := func() {
+		for pos < len(raw) {
+			c := raw[pos]
+			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+				pos++
+				continue
+			}
+			break
+		}
+	}
+
+	if n.value == nil {
+		n.value = make([]core.Node, 0)
+	}
+
+	curIndex := len(n.value)
+	for pos < len(raw) {
+		skipWS()
+		if pos >= len(raw) {
+			break
+		}
+		if raw[pos] == ']' {
+			n.parsed.Store(true)
+			n.mu.Unlock()
+			return
+		}
+
+		elemStart := pos
+		var elemEnd int
+		switch raw[pos] {
+		case '{':
+			elemEnd = findMatchingBrace(raw, pos)
+		case '[':
+			elemEnd = findMatchingBracket(raw, pos)
+		case '"':
+			elemEnd = findMatchingQuote(raw, pos)
+		default:
+			elemEnd = findValueEnd(raw, pos)
+		}
+		if elemEnd == -1 {
+			n.mu.Unlock()
+			n.lazyParse()
+			return
+		}
+
+		segment := raw[elemStart : elemEnd+1]
+		p := newParser(segment, n.funcs)
+		child := p.doParse(n)
+		if child == nil || !child.IsValid() {
+			if child != nil {
+				n.err = child.Error()
+				n.mu.Unlock()
+			} else {
+				n.mu.Unlock()
+				n.lazyParse()
+			}
+			return
+		}
+		if bn, ok := child.(*baseNode); ok {
+			bn.parent = n
+		} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+			inode.setParent(n)
+		}
+		n.value = append(n.value, child)
+
+		if curIndex == idx {
+			n.mu.Unlock()
+			return
+		}
+		curIndex++
+
+		pos = elemEnd + 1
+		skipWS()
+		if pos < len(raw) && raw[pos] == ',' {
+			pos++
+			continue
+		}
+		if pos < len(raw) && raw[pos] == ']' {
+			n.parsed.Store(true)
+			n.mu.Unlock()
+			return
+		}
+		n.mu.Unlock()
+		n.lazyParse()
+		return
+	}
+
+	n.mu.Unlock()
 }
 
 func (n *arrayNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {
@@ -69,6 +204,11 @@ func (n *arrayNode) Set(key string, value interface{}) core.Node {
 
 	if idx >= 0 && idx < len(n.value) {
 		n.isDirty = true
+		if tryMutateScalarNode(n.value[idx], value) {
+			// Clear query cache since we're modifying the node
+			n.baseNode.clearQueryCache()
+			return n
+		}
 		child := NewNodeFromInterface(n, value, n.funcs)
 		if !child.IsValid() {
 			n.setError(child.Error())
@@ -239,26 +379,29 @@ func (n *arrayNode) lazyParsePath(path []string) {
 		return
 	}
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if n.parsed.Load() || n.isDirty {
+		n.mu.Unlock()
 		return
 	}
 
 	// Check if we already have enough elements
 	idx, err := strconv.Atoi(path[0])
 	if err != nil {
+		n.mu.Unlock()
 		n.lazyParse()
 		return
 	}
 
 	// For negative indices, we need to parse the entire array to know the length
 	if idx < 0 {
+		n.mu.Unlock()
 		n.lazyParse()
 		return
 	}
 
 	// If we already have enough elements, no need to parse more
 	if idx < len(n.value) {
+		n.mu.Unlock()
 		return
 	}
 	// We'll scan raw to parse elements one-by-one until we reach idx or the end.
@@ -269,6 +412,7 @@ func (n *arrayNode) lazyParsePath(path []string) {
 		pos++
 	}
 	if pos >= len(raw) {
+		n.mu.Unlock()
 		n.lazyParse()
 		return
 	}
@@ -317,6 +461,7 @@ func (n *arrayNode) lazyParsePath(path []string) {
 			elemEnd = findValueEnd(raw, pos)
 		}
 		if elemEnd == -1 {
+			n.mu.Unlock()
 			n.lazyParse()
 			return
 		}
@@ -328,7 +473,9 @@ func (n *arrayNode) lazyParsePath(path []string) {
 		if child == nil || !child.IsValid() {
 			if child != nil {
 				n.err = child.Error()
+				n.mu.Unlock()
 			} else {
+				n.mu.Unlock()
 				n.lazyParse()
 			}
 			return
@@ -343,6 +490,7 @@ func (n *arrayNode) lazyParsePath(path []string) {
 
 		// if we've reached the requested index, stop parsing further
 		if curIndex == idx {
+			n.mu.Unlock()
 			return
 		}
 		curIndex++
@@ -356,14 +504,17 @@ func (n *arrayNode) lazyParsePath(path []string) {
 		}
 		if pos < len(raw) && raw[pos] == ']' {
 			n.parsed.Store(true)
+			n.mu.Unlock()
 			return
 		}
 		// unexpected token -> fallback to full parse
+		n.mu.Unlock()
 		n.lazyParse()
 		return
 	}
 
 	// if we reach here, we didn't find enough elements; parse full array to establish state
+	n.mu.Unlock()
 	n.lazyParse()
 }
 

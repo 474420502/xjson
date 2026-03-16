@@ -131,6 +131,7 @@ func (n *stringNode) MustTime() time.Time {
 // numberNode implementation
 type numberNode struct {
 	baseNode
+	inlineBuf [32]byte
 }
 
 func (n *numberNode) Type() core.NodeType { return core.Number }
@@ -193,11 +194,40 @@ func (n *numberNode) RawString() (string, bool) {
 	return n.Raw(), true
 }
 
+func (n *numberNode) setInt64(v int64) {
+	buf := strconv.AppendInt(n.inlineBuf[:0], v, 10)
+	n.raw = buf
+	n.start = 0
+	n.end = len(buf)
+	n.err = nil
+}
+
+func (n *numberNode) setUint64(v uint64) {
+	buf := strconv.AppendUint(n.inlineBuf[:0], v, 10)
+	n.raw = buf
+	n.start = 0
+	n.end = len(buf)
+	n.err = nil
+}
+
+func (n *numberNode) setFloat64(v float64) {
+	buf := strconv.AppendFloat(n.inlineBuf[:0], v, 'f', -1, 64)
+	n.raw = buf
+	n.start = 0
+	n.end = len(buf)
+	n.err = nil
+}
+
 // boolNode implementation
 type boolNode struct {
 	baseNode
 	value bool
 }
+
+var (
+	trueRawBytes  = []byte("true")
+	falseRawBytes = []byte("false")
+)
 
 func (n *boolNode) Type() core.NodeType { return core.Bool }
 func (n *boolNode) Bool() bool          { return n.value }
@@ -254,4 +284,77 @@ func (n *nullNode) Set(key string, value interface{}) core.Node {
 // SetByPath implements the SetByPath method for nullNode
 func (n *nullNode) SetByPath(path string, value interface{}) core.Node {
 	return n.baseNode.SetByPath(path, value)
+}
+
+func tryMutateScalarNode(existing core.Node, value interface{}) bool {
+	switch node := existing.(type) {
+	case *numberNode:
+		switch v := value.(type) {
+		case int:
+			node.setInt64(int64(v))
+			return true
+		case int8:
+			node.setInt64(int64(v))
+			return true
+		case int16:
+			node.setInt64(int64(v))
+			return true
+		case int32:
+			node.setInt64(int64(v))
+			return true
+		case int64:
+			node.setInt64(v)
+			return true
+		case uint:
+			node.setUint64(uint64(v))
+			return true
+		case uint8:
+			node.setUint64(uint64(v))
+			return true
+		case uint16:
+			node.setUint64(uint64(v))
+			return true
+		case uint32:
+			node.setUint64(uint64(v))
+			return true
+		case uint64:
+			node.setUint64(v)
+			return true
+		case float32:
+			node.setFloat64(float64(v))
+			return true
+		case float64:
+			node.setFloat64(v)
+			return true
+		}
+	case *boolNode:
+		if v, ok := value.(bool); ok {
+			node.value = v
+			if v {
+				node.raw = trueRawBytes
+			} else {
+				node.raw = falseRawBytes
+			}
+			node.start = 0
+			node.end = len(node.raw)
+			node.err = nil
+			return true
+		}
+	case *stringNode:
+		if v, ok := value.(string); ok {
+			node.value = v
+			node.decoded = true
+			node.needsUnescape = false
+			node.cachedDecoded = nil
+			node.raw = nil
+			node.start = 0
+			node.end = 0
+			node.err = nil
+			return true
+		}
+	case *nullNode:
+		return value == nil
+	}
+
+	return false
 }

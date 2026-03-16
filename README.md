@@ -1,4 +1,4 @@
-# XJSON - Unified Node Model JSON Processor (v0.1.0)
+# XJSON - Unified Node Model JSON Processor (v0.2.0)
 
 **XJSON** **is a powerful Go JSON processing library that uses a fully unified** **Node** **model, supporting path functions, streaming operations, and flexible query syntax.**
 
@@ -12,6 +12,61 @@
 * **🌟** **Wildcard Queries**: Support **`*`** wildcards and complex path expressions.
 * **🔍** **Recursive Descent**: Search for matching keys throughout the JSON tree using **//key** **syntax.**
 * **⬆️** **Parent Path Navigation**: Access parent nodes flexibly with **../** **syntax for relative path navigation.**
+
+## Current Behavior
+
+- `Parse` keeps the tree lazy and parses child nodes on demand.
+- `MustParse` eagerly expands the full tree and is useful when you want upfront validation or repeated full-tree access.
+- The path parser currently covers quoted special keys, empty keys such as `['']`, escaped quotes and backslashes, negative indexes, slices, recursive descent, and repeated parent navigation like `../../meta`.
+- `Parse` and `MustParse` accept `string` or `[]byte` input.
+
+## Benchmark Snapshot
+
+Latest local benchmark run after the recent eager-parse, query fast-path, and root-level query-cache optimizations:
+
+| Scenario | XJSON | GJSON | JsonIter | encoding/json |
+| :--- | :--- | :--- | :--- | :--- |
+| Parse | `24330 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
+| Query on prepared data | `17.96 ns/op` | `411.9 ns/op` | `78.63 ns/op` | `78.17 ns/op` |
+| Parse each time then query | `85180 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
+| Mutate only on prepared data | `49.46 ns/op` | N/A | `21.81 ns/op` | `22.10 ns/op` |
+| Parse, mutate, then serialize | `61228 ns/op` | N/A | `50733 ns/op` | `73817 ns/op` |
+
+Additional XJSON query split on the same machine:
+
+- `BenchmarkXJSONQuery`: `17.96 ns/op`, `0 B/op`, `0 allocs/op` with a repeated identical path hitting the root query cache after the first lookup.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `209.6 ns/op`, `0 B/op`, `0 allocs/op` for the same path on an already parsed tree after explicit cache reset.
+
+Unit test coverage snapshot from the same revision:
+
+- Overall repository statement coverage: `56.0%`.
+- Query hot path coverage highlights: `applySimpleQuery` `83.8%`, `fastScanObjectChildLocked` `83.1%`, `tryFastBracketQuery` `87.5%`.
+- Query parser coverage highlights: `Parse` `81.0%`, `parseBracketExpression` `78.0%`, `parseQuotedKey` `93.3%`.
+
+Memory snapshot from the same run:
+
+| Benchmark | Memory |
+| :--- | :--- |
+| `BenchmarkXJSONParse` | `79072 B/op`, `424 allocs/op` |
+| `BenchmarkXJSONQuery` | `0 B/op`, `0 allocs/op` |
+| `BenchmarkXJSONSet_Prepared_MutateOnly` | `0 B/op`, `0 allocs/op` |
+| `BenchmarkXJSONSet` | `469080 B/op`, `547 allocs/op` |
+| `BenchmarkGJSONQuery` | `16 B/op`, `1 allocs/op` |
+| `BenchmarkJsonIterParse` | `26603 B/op`, `567 allocs/op` |
+| `BenchmarkStandardJSONParse` | `24960 B/op`, `446 allocs/op` |
+
+Notes:
+
+- Environment: `linux/amd64`, `AMD Ryzen 7 7700 8-Core Processor`.
+- Command: `go test -run '^$' -bench 'Benchmark(XJSON|GJSON|JsonIter|StandardJSON)(Parse|Decode|Query|Set(_Prepared_MutateOnly)?|Query_OnceParse_(FirstHit|MultiQuery)|Query_LazyParse_EachQuery)$' -benchmem ./...`
+- Coverage command: `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`.
+- All query benchmarks now target the same deep field: `...users[0].profile.personal.name`.
+- `BenchmarkXJSONQuery` and `BenchmarkXJSONQuery_OnceParse_MultiQuery` reuse the same parsed root and identical query path, so the latest XJSON number reflects a root-level query-cache hit after the first lookup.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit` isolates the cold prepared-query path on XJSON. After the latest changes, its remaining cost is mostly per-segment string map lookups plus one cache write, not parser work or cache-map allocation.
+- All mutation benchmarks now target the same deep object: `...users[0].profile.personal.age`, then serialize the whole document.
+- `gjson` is query-only, so parse and mutation rows are marked `N/A`.
+- `BenchmarkXJSONSet_Prepared_MutateOnly`, `BenchmarkJsonIterSet_Prepared_MutateOnly`, and `BenchmarkStandardJSONSet_Prepared_MutateOnly` isolate write-path cost on already prepared data.
+- `BenchmarkXJSONSet`, `BenchmarkJsonIterSet`, and `BenchmarkStandardJSONSet` still include parse plus mutation plus serialization. They are useful as end-to-end write-path comparisons, but they are not isolated mutation-only costs.
 
 ## 🚀 Quick Start
 
@@ -553,7 +608,7 @@ This approach is more memory-efficient for large JSON documents when you only ne
 
 #### Eager Parsing with MustParse()
 
-The [MustParse()](file:///home/eson/workspace/xjson/xjson.go#L194-L196) function parses the entire JSON tree immediately:
+The `MustParse()` function parses the entire JSON tree immediately:
 
 ```go
 // All nodes are parsed immediately
@@ -650,6 +705,10 @@ When object key names contain special characters such as `/`, `.`, `[`, `]` or n
 * **Key with Quotes**:
   * If the key name is `a"key`, use `['a"key']`.
   * If the key name is `a'key`, use `["a'key"]`.
+* **Empty Key**: `/['']/name`
+* **Escaping**:
+	* In single-quoted keys, escape `'` as `\'` and `\` as `\\`.
+	* In double-quoted keys, escape `"` as `\"` and `\` as `\\`.
 * **Mixed with Regular Paths**: `/data['user-settings']/theme`
 
 **5.3. Recursive Descent**
@@ -780,6 +839,11 @@ rootFromDeep := root.Query("/store/electronics/laptops[0]/../../authors").String
 | **Special Characters** | `['<key>']` | Delimit key names containing special characters. | `['user.profile']` |
 | | `["<key>"]` | Delimit key names containing single quotes. | `["a'key"]` |
 
+Notes:
+
+- Consecutive parent segments are supported, for example `/store/books[0]/../../meta`.
+- Invalid path syntax returns an invalid node with an attached error; check `node.Error()` when you need to distinguish “not found” from “bad path”.
+
 ### 6. Function Registration and Calling
 
 **The new function system is more powerful and flexible:**
@@ -812,6 +876,20 @@ funcs := root.GetFuncs()
 
 ## 🛠️ Complete API Reference
 
+### Navigation and Mutation
+
+| Method | Description | Example |
+| --- | --- | --- |
+| **Query(path)** | Evaluate an absolute or relative query path | `root.Query("/store/books[0]/title")` |
+| **Get(key)** | Access an object field directly | `root.Get("store")` |
+| **Index(i)** | Access an array element directly | `root.Get("books").Index(0)` |
+| **Set(key, value)** | Set or replace an object field | `root.Query("/user").Set("name", "Alice")` |
+| **Append(value)** | Append to an array | `root.Query("/users").Append(newUser)` |
+| **SetValue(value)** | Replace the current node in-place | `root.Query("/users[1]/active").SetValue(true)` |
+| **SetByPath(path, value)** | Set a value by path, creating intermediates when possible | `root.SetByPath("/config/theme", "dark")` |
+| **Path()** | Return the canonical path of the current node | `root.Query("/users[0]/name").Path()` |
+| **Parent()** | Return the parent node | `root.Query("/users[0]").Parent()` |
+
 ### Function Management
 
 | Method | Description | Example |
@@ -819,7 +897,7 @@ funcs := root.GetFuncs()
 | **RegisterFunc(name, fn)** | Register path function | `root.RegisterFunc("cheap", filterCheap)` |
 | **CallFunc(name)** | Call function directly | `root.CallFunc("cheap")` |
 | **RemoveFunc(name)** | Remove function | `root.RemoveFunc("cheap")` |
-| **Apply(fn)** | Apply function immediately | `root.Apply(predicateFunc)` |
+| **Apply(fn)** | Apply a `UnaryPathFunc`, `PredicateFunc`, or `TransformFunc` immediately | `root.Apply(predicateFunc)` |
 | **GetFuncs()** | Get registered functions | `funcs := root.GetFuncs()` |
 | **Error() error** | Return the first error in chained calls | `if err := n.Error(); err != nil { ... }` |
 
@@ -856,10 +934,15 @@ funcs := root.GetFuncs()
 
 ## ⚡ Performance Optimization
 
-* **Function Caching**: Compiled paths are cached to accelerate repeated queries.
+* **Lazy Child Caching**: Parsed child nodes are cached back onto parents when safe, reducing repeated parsing work on hot paths.
 * **Native Value Access**: `Raw` series methods directly access data from underlying memory, avoiding creation of intermediate **Node** objects.
 * **Short-Circuit Optimization**: Support early termination in some filtering and query scenarios.
 * **Efficient Chained Operations**: Each operation is highly optimized to reduce data copying and memory allocation.
+
+Notes:
+
+- Query cache is currently disabled by default, so repeated identical path strings do not rely on a global compiled-path cache.
+- The internal lazy iterators described above are engine-level optimizations, not a stable public API.
 
 **High-Performance Function Example:**
 

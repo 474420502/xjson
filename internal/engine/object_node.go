@@ -41,6 +41,12 @@ func (n *objectNode) Get(key string) core.Node {
 	if n.err != nil {
 		return n
 	}
+	if n.parsed.Load() || len(n.raw) == 0 {
+		if child, ok := n.value[key]; ok {
+			return child
+		}
+		return sharedInvalidNode()
+	}
 	// 优先只解析目标 key
 	n.lazyParsePath([]string{key})
 	if child, ok := n.value[key]; ok {
@@ -215,6 +221,10 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 	if !found {
 		n.sortedKeys = append(n.sortedKeys, key)
 		sort.Strings(n.sortedKeys)
+	}
+
+	if existing, exists := n.value[key]; exists && tryMutateScalarNode(existing, value) {
+		return n
 	}
 
 	child := NewNodeFromInterface(n, value, n.funcs)

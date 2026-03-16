@@ -2,6 +2,7 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -215,5 +216,22 @@ func TestDetailedParentNavigation(t *testing.T) {
 	parent4 := parent3.Parent()
 	if parent4 != nil {
 		t.Errorf("Expected parent4 to be nil, got %v", parent4)
+	}
+}
+
+func TestArrayLazyParsePathFallbackDoesNotDeadlock(t *testing.T) {
+	funcs := &map[string]core.UnaryPathFunc{}
+	node := NewArrayNode(nil, []byte("not-an-array"), funcs).(*arrayNode)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		node.lazyParsePath([]string{"0"})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("lazyParsePath fallback appears to deadlock")
 	}
 }

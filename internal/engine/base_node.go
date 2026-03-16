@@ -29,7 +29,10 @@ type baseNode struct {
 	// query cache for performance optimization
 	queryCache map[string]core.Node
 	cacheMutex sync.RWMutex
+	hasQueryCache atomic.Bool
 }
+
+const maxQueryCacheEntries = 128
 
 // getCachedQueryResult retrieves a cached query result if available
 func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
@@ -47,21 +50,29 @@ func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
 // setCachedQueryResult stores a query result in the cache
 func (n *baseNode) setCachedQueryResult(path string, result core.Node) {
 	n.cacheMutex.Lock()
-	defer n.cacheMutex.Unlock()
 
 	if n.queryCache == nil {
 		n.queryCache = make(map[string]core.Node)
+	} else if _, exists := n.queryCache[path]; !exists && len(n.queryCache) >= maxQueryCacheEntries {
+		n.cacheMutex.Unlock()
+		return
 	}
 
 	n.queryCache[path] = result
+	n.hasQueryCache.Store(true)
+	n.cacheMutex.Unlock()
 }
 
 // clearQueryCache clears the query cache, should be called when node is modified
 func (n *baseNode) clearQueryCache() {
-	n.cacheMutex.Lock()
-	defer n.cacheMutex.Unlock()
-
-	n.queryCache = nil
+	if n.hasQueryCache.Load() {
+		n.cacheMutex.Lock()
+		if n.queryCache != nil {
+			clear(n.queryCache)
+		}
+		n.hasQueryCache.Store(false)
+		n.cacheMutex.Unlock()
+	}
 
 	// Also clear cache of all ancestors
 	if n.parent != nil {
@@ -69,6 +80,12 @@ func (n *baseNode) clearQueryCache() {
 		if parentBase, ok := n.parent.(interface{ clearQueryCache() }); ok {
 			parentBase.clearQueryCache()
 		}
+	}
+}
+
+func ResetQueryCache(node core.Node) {
+	if root, ok := node.(interface{ clearQueryCache() }); ok {
+		root.clearQueryCache()
 	}
 }
 
@@ -123,6 +140,10 @@ func (n *baseNode) Parent() core.Node {
 		return n.selfOrMe()
 	}
 	return n.parent
+}
+
+func (n *baseNode) setParent(parent core.Node) {
+	n.parent = parent
 }
 
 func (n *baseNode) Error() error {
@@ -229,12 +250,30 @@ func (n *baseNode) SetByPath(path string, value interface{}) core.Node {
 }
 
 func (n *baseNode) Path() string {
-	// Path building logic can be complex, so this is a simplified stub.
-	// A full implementation would require knowing the key/index.
-	if n.parent != nil {
-		return n.parent.Path() + "/?"
+	self := n.selfOrMe()
+	if n.parent == nil || self == nil {
+		return ""
 	}
-	return ""
+
+	basePath := n.parent.Path()
+	switch parent := n.parent.(type) {
+	case *objectNode:
+		if key, ok := findObjectChildKey(parent, self); ok {
+			return basePath + "/" + formatPathKey(key)
+		}
+	case *arrayNode:
+		if idx, ok := findArrayChildIndex(parent, self); ok {
+			if basePath == "" {
+				return fmt.Sprintf("[%d]", idx)
+			}
+			return fmt.Sprintf("%s[%d]", basePath, idx)
+		}
+	}
+
+	if basePath == "" {
+		return "/?"
+	}
+	return basePath + "/?"
 }
 
 func (n *baseNode) Query(path string) core.Node {
@@ -314,11 +353,66 @@ func (n *baseNode) ForEach(fn func(keyOrIndex interface{}, value core.Node)) {
 }
 
 func (n *baseNode) SetValue(v interface{}) core.Node {
-	return newInvalidNode(fmt.Errorf("setValue not supported on type %s", n.Type()))
+	if n.err != nil {
+		return n.selfOrMe()
+	}
+	if n.parent == nil {
+		return newInvalidNode(fmt.Errorf("setValue not supported on root node type %s", n.Type()))
+	}
+
+	replacement := NewNodeFromInterface(n.parent, v, n.funcs)
+	if !replacement.IsValid() {
+		return replacement
+	}
+
+	switch parent := n.parent.(type) {
+	case *objectNode:
+		if key, ok := findObjectChildKey(parent, n.selfOrMe()); ok {
+			parent.isDirty = true
+			markAncestorNodesDirty(parent.parent)
+			parent.baseNode.clearQueryCache()
+			parent.value[key] = replacement
+			return replacement
+		}
+	case *arrayNode:
+		if idx, ok := findArrayChildIndex(parent, n.selfOrMe()); ok {
+			parent.isDirty = true
+			markAncestorNodesDirty(parent.parent)
+			parent.baseNode.clearQueryCache()
+			parent.value[idx] = replacement
+			return replacement
+		}
+	}
+
+	return newInvalidNode(fmt.Errorf("setValue could not locate current node in parent"))
 }
 
 func (n *baseNode) Apply(fn core.PathFunc) core.Node {
-	return newInvalidNode(fmt.Errorf("apply not supported on type %s", n.Type()))
+	if n.err != nil {
+		return n.selfOrMe()
+	}
+	self := n.selfOrMe()
+	switch typed := fn.(type) {
+	case core.UnaryPathFunc:
+		return typed(self)
+	case core.PredicateFunc:
+		if result := self.Filter(typed); result.IsValid() {
+			return result
+		}
+		if typed(self) {
+			return self
+		}
+		out := NewArrayNode(n.parent, nil, n.funcs)
+		out.(*arrayNode).isDirty = true
+		return out
+	case core.TransformFunc:
+		if result := self.Map(typed); result.IsValid() {
+			return result
+		}
+		return NewNodeFromInterface(n.parent, typed(self), n.funcs)
+	default:
+		return newInvalidNode(fmt.Errorf("unsupported apply function type %T", fn))
+	}
 }
 
 func (n *baseNode) String() string         { return n.Raw() }
@@ -382,4 +476,90 @@ func (n *baseNode) GetFuncs() *map[string]core.UnaryPathFunc {
 
 func (n *baseNode) IsValid() bool {
 	return n.err == nil
+}
+
+func markAncestorNodesDirty(current core.Node) {
+	for current != nil {
+		switch typed := current.(type) {
+		case *objectNode:
+			typed.isDirty = true
+			current = typed.parent
+		case *arrayNode:
+			typed.isDirty = true
+			current = typed.parent
+		default:
+			return
+		}
+	}
+}
+
+func formatPathKey(key string) string {
+	if key == "" {
+		return "['']"
+	}
+	if isSimplePathKey(key) {
+		return key
+	}
+	return "['" + escapeQuotedPathKey(key) + "']"
+}
+
+func isSimplePathKey(key string) bool {
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' {
+			continue
+		}
+		if i > 0 && c >= '0' && c <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func escapeQuotedPathKey(key string) string {
+	escaped := make([]byte, 0, len(key))
+	for i := 0; i < len(key); i++ {
+		if key[i] == '\\' || key[i] == '\'' {
+			escaped = append(escaped, '\\')
+		}
+		escaped = append(escaped, key[i])
+	}
+	return string(escaped)
+}
+
+func findObjectChildKey(parent *objectNode, target core.Node) (string, bool) {
+	if parent.value != nil {
+		for key, child := range parent.value {
+			if child == target {
+				return key, true
+			}
+		}
+	}
+	if !parent.parsed.Load() {
+		parent.lazyParse()
+		for key, child := range parent.value {
+			if child == target {
+				return key, true
+			}
+		}
+	}
+	return "", false
+}
+
+func findArrayChildIndex(parent *arrayNode, target core.Node) (int, bool) {
+	for idx, child := range parent.value {
+		if child == target {
+			return idx, true
+		}
+	}
+	if !parent.parsed.Load() {
+		parent.lazyParse()
+		for idx, child := range parent.value {
+			if child == target {
+				return idx, true
+			}
+		}
+	}
+	return 0, false
 }

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -123,33 +124,32 @@ func TestNodeAsMapMethods(t *testing.T) {
 
 func TestNodeSetValueMethod(t *testing.T) {
 	// Test SetValue method
-	jsonData := []byte(`{"value": "original"}`)
+	jsonData := []byte(`{"value": "original", "nested": {"flag": false}}`)
 	root, err := Parse(jsonData)
 	if err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
 	node := root.Get("value")
-	// String nodes include quotes in their raw representation
-	if node.String() != `"original"` {
-		// Let's check what we actually get
-		t.Logf("Actual string value: %s", node.String())
-		// The test was wrong, let's fix it
-		if node.String() != "original" {
-			t.Errorf("Expected 'original', got %s", node.String())
-		}
+	if node.String() != "original" {
+		t.Errorf("Expected 'original', got %s", node.String())
 	}
 
-	// SetValue is not directly available on baseNode, but we can test Set method
-	root.Set("value", "updated")
+	updated := node.SetValue("updated")
+	if !updated.IsValid() {
+		t.Fatalf("SetValue failed: %v", updated.Error())
+	}
 	updatedNode := root.Get("value")
-	if updatedNode.String() != `"updated"` {
-		// Let's check what we actually get
-		t.Logf("Actual updated string value: %s", updatedNode.String())
-		// The test was wrong, let's fix it
-		if updatedNode.String() != "updated" {
-			t.Errorf("Expected 'updated', got %s", updatedNode.String())
-		}
+	if updatedNode.String() != "updated" {
+		t.Errorf("Expected 'updated', got %s", updatedNode.String())
+	}
+
+	flagNode := root.Query("/nested/flag")
+	if !flagNode.SetValue(true).IsValid() {
+		t.Fatalf("SetValue on nested bool failed: %v", flagNode.Error())
+	}
+	if !root.Query("/nested/flag").Bool() {
+		t.Errorf("Expected nested flag to become true")
 	}
 }
 
@@ -408,30 +408,102 @@ func TestNodeApplyMethod(t *testing.T) {
 			return item.Int() > 3
 		})
 	}))
-
-	// Let's debug what we're getting
-	t.Logf("Filtered node type: %v", filtered.Type())
-	t.Logf("Filtered node valid: %v", filtered.IsValid())
-	if filtered.Error() != nil {
-		t.Logf("Filtered node error: %v", filtered.Error())
+	if !filtered.IsValid() {
+		t.Fatalf("Apply returned invalid node: %v", filtered.Error())
 	}
-	t.Logf("Filtered node length: %d", filtered.Len())
-
-	// The Apply method might not work as expected with arrays, let's try a different approach
-	// Apply the function directly
-	result := core.UnaryPathFunc(func(n core.Node) core.Node {
-		return n.Filter(func(item core.Node) bool {
-			return item.Int() > 3
-		})
-	})(arrNode)
-
-	if result.Len() != 2 {
-		t.Errorf("Expected filtered result length 2, got %d", result.Len())
+	if filtered.Len() != 2 {
+		t.Errorf("Expected filtered result length 2, got %d", filtered.Len())
 	}
-	
-	values := result.Array()
+
+	values := filtered.Array()
 	if values[0].Int() != 4 || values[1].Int() != 5 {
 		t.Errorf("Filtered values don't match expected")
+	}
+}
+
+func TestNodePathMethod(t *testing.T) {
+	jsonData := []byte(`{"user-data": {"items": [{"name": "Alice"}]}}`)
+	root, err := Parse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	node := root.Query(`/['user-data']/items[0]/name`)
+	if !node.IsValid() {
+		t.Fatalf("Query failed: %v", node.Error())
+	}
+	if node.Path() != `/['user-data']/items[0]/name` {
+		t.Errorf("Expected precise path, got %s", node.Path())
+	}
+}
+
+func TestSetReusesExistingScalarNodeTypes(t *testing.T) {
+	jsonData := []byte(`{"profile":{"age":30,"name":"Alice","active":true},"values":[1,true,"x"]}`)
+	root, err := MustParse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	ageNode := root.Query("/profile/age")
+	nameNode := root.Query("/profile/name")
+	activeNode := root.Query("/profile/active")
+	arrayNumberNode := root.Query("/values[0]")
+
+	root.Query("/profile").Set("age", 31)
+	root.Query("/profile").Set("name", "Bob")
+	root.Query("/profile").Set("active", false)
+	root.Query("/values").Set("0", 2)
+
+	if ageNode.Int() != 31 {
+		t.Fatalf("expected updated age, got %d", ageNode.Int())
+	}
+	if nameNode.String() != "Bob" {
+		t.Fatalf("expected updated name, got %q", nameNode.String())
+	}
+	if activeNode.Bool() {
+		t.Fatalf("expected updated active flag to be false")
+	}
+	if arrayNumberNode.Int() != 2 {
+		t.Fatalf("expected updated array element, got %d", arrayNumberNode.Int())
+	}
+
+	if ageNode != root.Query("/profile/age") {
+		t.Fatalf("expected age node identity to be preserved")
+	}
+	if nameNode != root.Query("/profile/name") {
+		t.Fatalf("expected name node identity to be preserved")
+	}
+	if activeNode != root.Query("/profile/active") {
+		t.Fatalf("expected bool node identity to be preserved")
+	}
+	if arrayNumberNode != root.Query("/values[0]") {
+		t.Fatalf("expected array element identity to be preserved")
+	}
+}
+
+func TestMustParseEagerlyParsesTree(t *testing.T) {
+	jsonData := []byte(`{"outer": {"inner": [{"value": 1}]}}`)
+	root, err := MustParse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	obj, ok := root.(*objectNode)
+	if !ok {
+		t.Fatalf("Expected object root, got %T", root)
+	}
+	if !obj.parsed.Load() {
+		t.Fatalf("Expected root object to be parsed eagerly")
+	}
+
+	outer, ok := obj.value["outer"].(*objectNode)
+	if !ok || !outer.parsed.Load() {
+		t.Fatalf("Expected nested object to be parsed eagerly")
+	}
+
+	inner, ok := outer.value["inner"].(*arrayNode)
+	if !ok || !inner.parsed.Load() {
+		t.Fatalf("Expected nested array to be parsed eagerly")
 	}
 }
 
@@ -460,7 +532,7 @@ func TestNodeRawMethods(t *testing.T) {
 	}
 }
 
-func TestNodePathMethod(t *testing.T) {
+func TestNodePathMethodSmoke(t *testing.T) {
 	// Test Path method
 	jsonData := []byte(`{"obj": {"nested": "value"}}`)
 	root, err := Parse(jsonData)
@@ -729,5 +801,88 @@ func TestQueryCacheDetailed(t *testing.T) {
 		t.Log("Query cache is working - same object returned for identical queries")
 	} else {
 		t.Log("Query cache may not be working - different objects returned")
+	}
+}
+
+func TestFastPathQueryCacheAndInvalidation(t *testing.T) {
+	root, err := MustParse([]byte(`{
+		"level1": {
+			"users": [
+				{
+					"profile": {
+						"name": "John"
+					}
+				}
+			]
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	path := "/level1/users[0]/profile/name"
+	first := root.Query(path)
+	if !first.IsValid() {
+		t.Fatalf("First query failed: %v", first.Error())
+	}
+	if first.String() != "John" {
+		t.Fatalf("Expected John, got %q", first.String())
+	}
+
+	second := root.Query(path)
+	if !second.IsValid() {
+		t.Fatalf("Second query failed: %v", second.Error())
+	}
+	if first != second {
+		t.Fatalf("Expected cached fast-path query to return same node instance")
+	}
+
+	profile := root.Query("/level1/users[0]/profile")
+	if !profile.IsValid() {
+		t.Fatalf("Profile query failed: %v", profile.Error())
+	}
+	profile.Set("name", "Jane")
+
+	third := root.Query(path)
+	if !third.IsValid() {
+		t.Fatalf("Third query failed: %v", third.Error())
+	}
+	if third.String() != "Jane" {
+		t.Fatalf("Expected Jane after mutation, got %q", third.String())
+	}
+	if first == third && first.String() != "Jane" {
+		t.Fatalf("Expected cached node to reflect mutated value")
+	}
+}
+
+func TestQueryCacheCapacityBounded(t *testing.T) {
+	root, err := MustParse([]byte(`{
+		"items": {
+			"k0": 0,
+			"k1": 1,
+			"k2": 2,
+			"k3": 3,
+			"k4": 4,
+			"k5": 5,
+			"k6": 6,
+			"k7": 7,
+			"k8": 8,
+			"k9": 9
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	bn := root.(*objectNode)
+	for i := 0; i < maxQueryCacheEntries+32; i++ {
+		path := fmt.Sprintf("/items/k%d/%03d", i%10, i)
+		bn.setCachedQueryResult(path, root)
+	}
+
+	bn.cacheMutex.RLock()
+	defer bn.cacheMutex.RUnlock()
+	if len(bn.queryCache) > maxQueryCacheEntries {
+		t.Fatalf("expected query cache size <= %d, got %d", maxQueryCacheEntries, len(bn.queryCache))
 	}
 }

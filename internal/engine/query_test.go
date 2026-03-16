@@ -291,11 +291,13 @@ func TestSliceQueries(t *testing.T) {
 
 func TestSpecialKeyQueries(t *testing.T) {
 	jsonData := []byte(`{
+		"": {"name": "empty"},
 		"user.profile": {"name": "dot"},
 		"/api/v1/users": {"name": "slash"},
 		"key with spaces": {"name": "space"},
 		"a\"key": {"name": "double_quote"},
-		"a'key": {"name": "single_quote"}
+		"a'key": {"name": "single_quote"},
+		"a'b\\c": {"name": "escaped"}
 	}`)
 
 	root, err := Parse(jsonData)
@@ -308,11 +310,13 @@ func TestSpecialKeyQueries(t *testing.T) {
 		path         string
 		expectedName string
 	}{
+		{"Empty key", `['']/name`, "empty"},
 		{"Dot in key", `['user.profile']/name`, "dot"},
 		{"Slash in key", `["/api/v1/users"]/name`, "slash"},
 		{"Space in key", `['key with spaces']/name`, "space"},
 		{"Double quote in key", `['a"key']/name`, "double_quote"},
 		{"Single quote in key", `["a'key"]/name`, "single_quote"},
+		{"Escaped single quote and slash", `['a\'b\\c']/name`, "escaped"},
 	}
 
 	for _, tc := range testCases {
@@ -326,6 +330,30 @@ func TestSpecialKeyQueries(t *testing.T) {
 				t.Errorf("Expected name '%s', got '%s'", tc.expectedName, name)
 			}
 		})
+	}
+}
+
+func TestRepeatedParentNavigationQuery(t *testing.T) {
+	jsonData := []byte(`{
+		"store": {
+			"books": [
+				{"title": "Moby Dick"}
+			],
+			"meta": {"owner": "library"}
+		}
+	}`)
+
+	root, err := Parse(jsonData)
+	if err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	owner := root.Query("/store/books[0]/../../meta/owner")
+	if err := owner.Error(); err != nil {
+		t.Fatalf("Repeated parent query failed: %v", err)
+	}
+	if owner.String() != "library" {
+		t.Fatalf("Expected library owner, got %q", owner.String())
 	}
 }
 

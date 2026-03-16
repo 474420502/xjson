@@ -31,6 +31,18 @@ func (p *parser) Parse() (core.Node, error) {
 	return n, nil
 }
 
+func (p *parser) ParseFull() (core.Node, error) {
+	p.skipWhitespace()
+	if p.pos >= len(p.data) {
+		return nil, fmt.Errorf("empty json")
+	}
+	n := p.doParseFull(nil)
+	if !n.IsValid() {
+		return nil, n.Error()
+	}
+	return n, nil
+}
+
 func (p *parser) parseValue(parent core.Node) core.Node {
 	p.skipWhitespace()
 	if p.pos >= len(p.data) {
@@ -39,12 +51,38 @@ func (p *parser) parseValue(parent core.Node) core.Node {
 	return p.doParse(parent)
 }
 
+func (p *parser) parseValueFull(parent core.Node) core.Node {
+	p.skipWhitespace()
+	if p.pos >= len(p.data) {
+		return newInvalidNode(fmt.Errorf("unexpected end of json"))
+	}
+	return p.doParseFull(parent)
+}
+
 func (p *parser) doParse(parent core.Node) core.Node {
 	switch p.data[p.pos] {
 	case '{':
 		return p.parseObject(parent)
 	case '[':
 		return p.parseArray(parent)
+	case '"':
+		return p.parseString(parent)
+	case 't', 'f':
+		return p.parseBool(parent)
+	case 'n':
+		return p.parseNull(parent)
+	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return p.parseNumber(parent)
+	}
+	return newInvalidNode(fmt.Errorf("invalid character '%c' looking for beginning of value", p.data[p.pos]))
+}
+
+func (p *parser) doParseFull(parent core.Node) core.Node {
+	switch p.data[p.pos] {
+	case '{':
+		return p.parseObjectFull(parent)
+	case '[':
+		return p.parseArrayFull(parent)
 	case '"':
 		return p.parseString(parent)
 	case 't', 'f':
@@ -111,12 +149,7 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 	p.skipWhitespace()
 
 	node := NewObjectNode(parent, nil, p.funcs).(*objectNode)
-	node.isDirty = true
-
-	// Try to pre-count fields to pre-allocate map capacity and reduce allocations
-	if cnt := countObjectFields(p.data, start); cnt >= 0 {
-		node.value = make(map[string]core.Node, cnt)
-	}
+	node.isDirty = false
 
 	for p.pos < len(p.data) {
 		if p.data[p.pos] == '}' {
@@ -124,6 +157,7 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 			node.raw = p.data[start:p.pos]
 			node.start = 0
 			node.end = len(node.raw)
+			node.parsed.Store(true)
 			return node
 		}
 
@@ -139,7 +173,7 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 		}
 		p.pos++ // skip ':'
 
-		valueNode := p.parseValue(node)
+		valueNode := p.parseValueFull(node)
 		if !valueNode.IsValid() {
 			return valueNode
 		}
@@ -155,6 +189,7 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 			node.raw = p.data[start:p.pos]
 			node.start = 0
 			node.end = len(node.raw)
+			node.parsed.Store(true)
 			return node
 		}
 
@@ -174,12 +209,7 @@ func (p *parser) parseArray(parent core.Node) core.Node {
 	p.skipWhitespace()
 
 	node := NewArrayNode(parent, nil, p.funcs).(*arrayNode)
-	node.isDirty = true
-
-	// Try to pre-count elements to pre-allocate slice capacity and reduce allocations
-	if cnt := countArrayElements(p.data, start); cnt >= 0 {
-		node.value = make([]core.Node, 0, cnt)
-	}
+	node.isDirty = false
 
 	for p.pos < len(p.data) {
 		if p.data[p.pos] == ']' {
@@ -202,6 +232,49 @@ func (p *parser) parseArray(parent core.Node) core.Node {
 			node.raw = p.data[start:p.pos]
 			node.start = 0
 			node.end = len(node.raw)
+			return node
+		}
+
+		if p.data[p.pos] != ',' {
+			return newInvalidNode(fmt.Errorf("missing ',' after array value"))
+		}
+		p.pos++ // skip ','
+		p.skipWhitespace()
+	}
+	return newInvalidNode(fmt.Errorf("unterminated array"))
+}
+
+func (p *parser) parseArrayFull(parent core.Node) core.Node {
+	start := p.pos
+	p.pos++ // skip '['
+	p.skipWhitespace()
+
+	node := NewArrayNode(parent, nil, p.funcs).(*arrayNode)
+	node.isDirty = false
+
+	for p.pos < len(p.data) {
+		if p.data[p.pos] == ']' {
+			p.pos++
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			node.parsed.Store(true)
+			return node
+		}
+
+		valueNode := p.parseValueFull(node)
+		if !valueNode.IsValid() {
+			return valueNode
+		}
+		node.value = append(node.value, valueNode)
+
+		p.skipWhitespace()
+		if p.data[p.pos] == ']' {
+			p.pos++
+			node.raw = p.data[start:p.pos]
+			node.start = 0
+			node.end = len(node.raw)
+			node.parsed.Store(true)
 			return node
 		}
 

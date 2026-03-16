@@ -3,199 +3,27 @@ package engine
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/474420502/xjson/internal/core"
 )
 
-// enableQueryCache controls whether query results are cached on nodes.
-// Disable during allocation-sensitive benchmarks to avoid cache-related allocations.
-var enableQueryCache = false
-
-// slice represents a slice operation, e.g., [start:end].
-type slice struct {
-	Start, End int
+// newRawBoolNode builds a bool node using provided raw slice and value without extra parsing
+func newRawBoolNode(parent core.Node, raw []byte, val bool, funcs *map[string]core.UnaryPathFunc) core.Node {
+	n := NewBoolNode(parent, val, funcs).(*boolNode)
+	n.raw = raw
+	n.start = 0
+	n.end = len(raw)
+	return n
 }
 
-// Op represents a query operation type for the simple query parser here.
-type Op int
-
-const (
-	OpKey Op = iota
-	OpIndex
-	OpSlice
-	OpFunc
-	OpWildcard
-	OpRecursive
-	OpParent
-)
-
-// QueryToken represents a token in the parsed path.
-type QueryToken struct {
-	Op    Op
-	Value interface{}
-}
-
-// ParseQuery tokenizes a query path into a sequence of operations.
-func ParseQuery(path string) ([]QueryToken, error) {
-	// Lightweight cache to avoid repeated tokenization allocations for the
-	// same path string. Safe to share the returned slice as tokens are
-	// treated immutably after creation.
-	if cached, ok := queryTokenCache.Load(path); ok {
-		return cached.([]QueryToken), nil
-	}
-	if path == "" || path == "/" {
-		return []QueryToken{}, nil
-	}
-	tokens := make([]QueryToken, 0)
-	p := 0
-
-	for p < len(path) {
-		// Skip leading slashes but handle '//' for recursive descent
-		if path[p] == '/' {
-			if p+1 < len(path) && path[p+1] == '/' { // Recursive descent
-				p += 2
-				nextSep := findNextSeparator(path, p)
-				key := path[p:nextSep]
-				tokens = append(tokens, QueryToken{Op: OpRecursive, Value: key})
-				p = nextSep
-				continue
-			}
-			p++ // Skip single slash
-			continue
-		}
-
-		if strings.HasPrefix(path[p:], "../") {
-			tokens = append(tokens, QueryToken{Op: OpParent, Value: ".."})
-			p += 3
-			continue
-		} else if strings.HasPrefix(path[p:], "..") {
-			tokens = append(tokens, QueryToken{Op: OpParent, Value: ".."})
-			p += 2
-			continue
-		}
-
-		if path[p] == '[' {
-			p++ // consume '['
-			if p >= len(path) {
-				return nil, fmt.Errorf("unclosed bracket in path")
-			}
-			if path[p] == '\'' || path[p] == '"' {
-				quote := path[p]
-				p++
-				start := p
-				for p < len(path) {
-					if path[p] == '\\' { // escape
-						p += 2
-						continue
-					}
-					if path[p] == quote {
-						break
-					}
-					p++
-				}
-				if p >= len(path) {
-					return nil, fmt.Errorf("unclosed quote in key name")
-				}
-				// unescape simple escapes for quotes and backslashes
-				raw := path[start:p]
-				key := strings.ReplaceAll(strings.ReplaceAll(raw, `\\`, `\`), `\"`, `"`)
-				tokens = append(tokens, QueryToken{Op: OpKey, Value: key})
-				p++ // consume closing quote
-				if p >= len(path) || path[p] != ']' {
-					return nil, fmt.Errorf("missing closing bracket for quoted key")
-				}
-				p++ // consume ']'
-				continue
-			}
-
-			end := strings.IndexByte(path[p:], ']')
-			if end == -1 {
-				return nil, fmt.Errorf("unclosed bracket in path: %s", path)
-			}
-			inner := path[p : p+end]
-			p += end + 1
-
-			if strings.HasPrefix(inner, "@") {
-				tokens = append(tokens, QueryToken{Op: OpFunc, Value: strings.TrimPrefix(inner, "@")})
-			} else if strings.Contains(inner, ":") {
-				parts := strings.SplitN(inner, ":", 2)
-				s, e := 0, -1
-				var err error
-				if parts[0] != "" {
-					s, err = strconv.Atoi(parts[0])
-					if err != nil {
-						return nil, fmt.Errorf("invalid slice start: %s", parts[0])
-					}
-				}
-				if parts[1] != "" {
-					e, err = strconv.Atoi(parts[1])
-					if err != nil {
-						return nil, fmt.Errorf("invalid slice end: %s", parts[1])
-					}
-				}
-				tokens = append(tokens, QueryToken{Op: OpSlice, Value: slice{Start: s, End: e}})
-			} else {
-				idx, err := strconv.Atoi(inner)
-				if err != nil {
-					return nil, fmt.Errorf("invalid index: %s", inner)
-				}
-				tokens = append(tokens, QueryToken{Op: OpIndex, Value: idx})
-			}
-			continue
-		}
-
-		nextSep := findNextSeparator(path, p)
-		key := path[p:nextSep]
-		if key == "*" {
-			tokens = append(tokens, QueryToken{Op: OpWildcard, Value: "*"})
-		} else if key != "" {
-			if i, ok := tryParseInt(key); ok {
-				tokens = append(tokens, QueryToken{Op: OpIndex, Value: i})
-			} else {
-				tokens = append(tokens, QueryToken{Op: OpKey, Value: key})
-			}
-		}
-		p = nextSep
-	}
-	// store a copy in cache for later reuse
-	queryTokenCache.Store(path, tokens)
-	return tokens, nil
-}
-
-// queryTokenCache stores parsed tokens for path strings to reduce
-// allocations for repeated queries.
-var queryTokenCache sync.Map // map[string][]QueryToken
-
-func findNextSeparator(path string, start int) int {
-	for i := start; i < len(path); i++ {
-		if path[i] == '/' || path[i] == '[' {
-			return i
-		}
-	}
-	return len(path)
-}
-
-func tryParseInt(s string) (int, bool) {
-	if s == "" {
-		return 0, false
-	}
-	// allow negative index
-	if s[0] == '-' && len(s) == 1 {
-		return 0, false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] == '-' && i == 0 {
-			continue
-		}
-		if s[i] < '0' || s[i] > '9' {
-			return 0, false
-		}
-	}
-	n, err := strconv.Atoi(s)
-	return n, err == nil
+// newRawNullNode builds a null node using provided raw slice without extra parsing
+func newRawNullNode(parent core.Node, raw []byte, funcs *map[string]core.UnaryPathFunc) core.Node {
+	n := NewNullNode(parent, funcs).(*nullNode)
+	n.raw = raw
+	n.start = 0
+	n.end = len(raw)
+	return n
 }
 
 func recursiveSearch(node core.Node, key string) core.Node {
@@ -420,12 +248,8 @@ func recursiveSearch(node core.Node, key string) core.Node {
 
 // newInvalidNode creates a new invalid node with the given error
 func applySimpleQuery(start core.Node, path string) core.Node {
-	// DEBUG: observe query flow
-	// Try a conservative fast-path for simple slash-separated key paths
-	if res := tryFastSlashQuery(start, path); res != nil {
-		return res
-	}
-	// Try to get cached result first
+	// Try to get cached result first so repeated identical queries can bypass
+	// both path scanning and per-segment object lookups.
 	if enableQueryCache {
 		if bn, ok := start.(interface {
 			getCachedQueryResult(string) (core.Node, bool)
@@ -434,6 +258,25 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 				return cachedResult
 			}
 		}
+	}
+	// First, try a composite fast-path that supports keys and [index] without allocations
+	if res := tryFastBracketQuery(start, path); res != nil {
+		if enableQueryCache {
+			if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+				bn.setCachedQueryResult(path, res)
+			}
+		}
+		return res
+	}
+	// DEBUG: observe query flow
+	// Try a conservative fast-path for simple slash-separated key paths
+	if res := tryFastSlashQuery(start, path); res != nil {
+		if enableQueryCache {
+			if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+				bn.setCachedQueryResult(path, res)
+			}
+		}
+		return res
 	}
 
 	tokens, err := ParseQuery(path)
@@ -585,6 +428,156 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 	}
 
 	return cur
+}
+
+func directObjectChild(o *objectNode, key string) core.Node {
+	if child, ok := o.value[key]; ok {
+		return child
+	}
+	return sharedInvalidNode()
+}
+
+func directArrayChild(a *arrayNode, idx int) core.Node {
+	if idx < 0 {
+		idx = len(a.value) + idx
+	}
+	if idx >= 0 && idx < len(a.value) {
+		return a.value[idx]
+	}
+	return newInvalidNode(fmt.Errorf("index out of bounds: %d", idx))
+}
+
+func fastConstructObjectChild(o *objectNode, segment []byte) core.Node {
+	var child core.Node
+	if len(segment) >= 2 && segment[0] == '"' && segment[len(segment)-1] == '"' {
+		needsUnescape := bytes.IndexByte(segment[1:len(segment)-1], '\\') != -1
+		child = NewRawStringNode(o, segment, 1, len(segment)-1, needsUnescape, o.funcs)
+	} else if len(segment) > 0 && (segment[0] == '{' || segment[0] == '[') {
+		if segment[0] == '{' {
+			child = NewObjectNode(o, segment, o.funcs)
+		} else {
+			child = NewArrayNode(o, segment, o.funcs)
+		}
+	} else {
+		if len(segment) > 0 {
+			switch segment[0] {
+			case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				child = NewNumberNode(o, segment, o.funcs)
+			case 't', 'f':
+				child = newRawBoolNode(o, segment, segment[0] == 't', o.funcs)
+			case 'n':
+				child = newRawNullNode(o, segment, o.funcs)
+			default:
+				p := newParser(segment, o.funcs)
+				child = p.doParse(o)
+			}
+		} else {
+			p := newParser(segment, o.funcs)
+			child = p.doParse(o)
+		}
+	}
+	if child == nil || !child.IsValid() {
+		return nil
+	}
+	if bn, ok := child.(*baseNode); ok {
+		bn.parent = o
+	} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
+		inode.setParent(o)
+	}
+	return child
+}
+
+func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool) {
+	if child, ok := o.value[key]; ok {
+		return child, true, true
+	}
+
+	raw := o.raw
+	pos := 0
+	for pos < len(raw) && raw[pos] != '{' {
+		pos++
+	}
+	if pos >= len(raw) {
+		return nil, false, false
+	}
+	pos++
+
+	skipWS := func() {
+		for pos < len(raw) {
+			c := raw[pos]
+			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+				pos++
+			} else {
+				break
+			}
+		}
+	}
+
+	for pos < len(raw) {
+		skipWS()
+		if pos >= len(raw) || raw[pos] == '}' {
+			break
+		}
+		if raw[pos] != '"' {
+			return nil, false, false
+		}
+		keyEnd := findMatchingQuote(raw, pos)
+		if keyEnd == -1 {
+			return nil, false, false
+		}
+		keyRaw := raw[pos+1 : keyEnd]
+		match := bytes.IndexByte(keyRaw, '\\') == -1 && compareStringBytes(key, keyRaw)
+		pos = keyEnd + 1
+		skipWS()
+		if pos >= len(raw) || raw[pos] != ':' {
+			return nil, false, false
+		}
+		pos++
+		skipWS()
+		if pos >= len(raw) {
+			return nil, false, false
+		}
+
+		var valEnd int
+		switch raw[pos] {
+		case '{':
+			valEnd = findMatchingBrace(raw, pos)
+		case '[':
+			valEnd = findMatchingBracket(raw, pos)
+		case '"':
+			valEnd = findMatchingQuote(raw, pos)
+		default:
+			valEnd = findValueEnd(raw, pos)
+		}
+		if valEnd == -1 {
+			return nil, false, false
+		}
+
+		if match {
+			child := fastConstructObjectChild(o, raw[pos:valEnd+1])
+			if child == nil {
+				return nil, false, false
+			}
+			if o.value == nil {
+				o.value = make(map[string]core.Node, 4)
+			}
+			o.value[key] = child
+			return child, true, true
+		}
+
+		pos = valEnd + 1
+		skipWS()
+		if pos < len(raw) && raw[pos] == ',' {
+			pos++
+			continue
+		}
+		if pos < len(raw) && raw[pos] == '}' {
+			break
+		}
+		return nil, false, false
+	}
+
+	return nil, false, true
 }
 
 // tryFastSlashQuery attempts a zero-allocation fast path for very simple
@@ -823,4 +816,470 @@ func tryFastSlashQuery(start core.Node, path string) core.Node {
 		}
 	}
 	return nil
+}
+
+// tryRawDirectPath walks the path directly over raw JSON bytes, avoiding
+// building intermediate nodes. It supports segments like a/b/c and [idx]
+// after a key, e.g., a/b[0]/c. It returns nil if the path isn't eligible.
+func tryRawDirectPath(start core.Node, path string) core.Node {
+	if path == "" || strings.ContainsAny(path, "*@.") || strings.Contains(path, "//") || strings.HasPrefix(path, "../") {
+		return nil
+	}
+	// root must be object or array with raw data and not parsed/dirty
+	var curRaw []byte
+	var isObj bool
+	switch n := start.(type) {
+	case *objectNode:
+		if n.isDirty || n.parsed.Load() || len(n.raw) == 0 {
+			return nil
+		}
+		curRaw = n.raw
+		isObj = true
+	case *arrayNode:
+		if n.isDirty || n.parsed.Load() || len(n.raw) == 0 {
+			return nil
+		}
+		curRaw = n.raw
+		isObj = false
+	default:
+		return nil
+	}
+
+	// path iterator
+	i := 0
+	// skip leading '/'
+	for i < len(path) && path[i] == '/' {
+		i++
+	}
+	if i >= len(path) {
+		// return root as-is
+		if isObj {
+			return start
+		}
+		return start
+	}
+
+	// helper: find value by key in object raw at top level
+	scanObj := func(raw []byte, key string) ([]byte, bool) {
+		// find '{'
+		pos := 0
+		for pos < len(raw) && raw[pos] != '{' {
+			pos++
+		}
+		if pos >= len(raw) {
+			return nil, false
+		}
+		pos++
+		skipWS := func() {
+			for pos < len(raw) {
+				c := raw[pos]
+				if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+					pos++
+				} else {
+					break
+				}
+			}
+		}
+		for pos < len(raw) {
+			skipWS()
+			if pos >= len(raw) || raw[pos] == '}' {
+				break
+			}
+			if raw[pos] != '"' {
+				return nil, false
+			}
+			keyEnd := findMatchingQuote(raw, pos)
+			if keyEnd == -1 {
+				return nil, false
+			}
+			keyRaw := raw[pos+1 : keyEnd]
+			// compare quickly if no escapes
+			match := bytes.IndexByte(keyRaw, '\\') == -1 && compareStringBytes(key, keyRaw)
+			if !match && bytes.IndexByte(keyRaw, '\\') != -1 {
+				un, err := unescape(keyRaw)
+				if err == nil {
+					match = compareStringBytes(key, un)
+				}
+			}
+			pos = keyEnd + 1
+			skipWS()
+			if pos >= len(raw) || raw[pos] != ':' {
+				return nil, false
+			}
+			pos++
+			skipWS()
+			if pos >= len(raw) {
+				return nil, false
+			}
+			var valEnd int
+			switch raw[pos] {
+			case '{':
+				valEnd = findMatchingBrace(raw, pos)
+			case '[':
+				valEnd = findMatchingBracket(raw, pos)
+			case '"':
+				valEnd = findMatchingQuote(raw, pos)
+			default:
+				valEnd = findValueEnd(raw, pos)
+			}
+			if valEnd == -1 {
+				return nil, false
+			}
+			if match {
+				return raw[pos : valEnd+1], true
+			}
+			pos = valEnd + 1
+			skipWS()
+			if pos < len(raw) && raw[pos] == ',' {
+				pos++
+				continue
+			}
+			if pos < len(raw) && raw[pos] == '}' {
+				break
+			}
+			return nil, false
+		}
+		return nil, false
+	}
+
+	// helper: find element by index in array raw at top level
+	scanArr := func(raw []byte, idx int) ([]byte, bool) {
+		// Only non-negative indices supported fast
+		if idx < 0 {
+			return nil, false
+		}
+		pos := 0
+		for pos < len(raw) && raw[pos] != '[' {
+			pos++
+		}
+		if pos >= len(raw) {
+			return nil, false
+		}
+		pos++
+		skipWS := func() {
+			for pos < len(raw) {
+				c := raw[pos]
+				if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+					pos++
+				} else {
+					break
+				}
+			}
+		}
+		cur := 0
+		for pos < len(raw) {
+			skipWS()
+			if pos >= len(raw) {
+				break
+			}
+			if raw[pos] == ']' {
+				break
+			}
+			elemStart := pos
+			var elemEnd int
+			switch raw[pos] {
+			case '{':
+				elemEnd = findMatchingBrace(raw, pos)
+			case '[':
+				elemEnd = findMatchingBracket(raw, pos)
+			case '"':
+				elemEnd = findMatchingQuote(raw, pos)
+			default:
+				elemEnd = findValueEnd(raw, pos)
+			}
+			if elemEnd == -1 {
+				return nil, false
+			}
+			if cur == idx {
+				return raw[elemStart : elemEnd+1], true
+			}
+			cur++
+			pos = elemEnd + 1
+			skipWS()
+			if pos < len(raw) && raw[pos] == ',' {
+				pos++
+				continue
+			}
+			if pos < len(raw) && raw[pos] == ']' {
+				break
+			}
+			// malformed
+			return nil, false
+		}
+		return nil, false
+	}
+
+	// Iterate path components
+	for i < len(path) {
+		if isObj {
+			// extract key
+			kStart := i
+			for i < len(path) && path[i] != '/' && path[i] != '[' {
+				i++
+			}
+			if kStart == i {
+				return nil
+			}
+			key := path[kStart:i]
+			seg, ok := scanObj(curRaw, key)
+			if !ok {
+				return sharedInvalidNode()
+			}
+			curRaw = seg
+			// update container type for next phase
+			if len(seg) > 0 && seg[0] == '{' {
+				isObj = true
+			} else if len(seg) > 0 && seg[0] == '[' {
+				isObj = false
+			} else {
+				isObj = false
+			}
+		} else {
+			// current is array; expect [index]
+			if i >= len(path) || path[i] != '[' {
+				return nil
+			}
+			i++
+			neg := false
+			if i < len(path) && path[i] == '-' {
+				neg = true
+				i++
+			}
+			val := 0
+			has := false
+			for i < len(path) && path[i] >= '0' && path[i] <= '9' {
+				has = true
+				val = val*10 + int(path[i]-'0')
+				i++
+			}
+			if !has || i >= len(path) || path[i] != ']' {
+				return nil
+			}
+			if neg {
+				val = -val
+			}
+			i++
+			seg, ok := scanArr(curRaw, val)
+			if !ok {
+				return sharedInvalidNode()
+			}
+			curRaw = seg
+			if len(seg) > 0 && seg[0] == '{' {
+				isObj = true
+			} else if len(seg) > 0 && seg[0] == '[' {
+				isObj = false
+			} else {
+				isObj = false
+			}
+		}
+
+		// Consume zero or more [index] following
+		for i < len(path) && path[i] == '[' {
+			i++
+			neg := false
+			if i < len(path) && path[i] == '-' {
+				neg = true
+				i++
+			}
+			val := 0
+			has := false
+			for i < len(path) && path[i] >= '0' && path[i] <= '9' {
+				has = true
+				val = val*10 + int(path[i]-'0')
+				i++
+			}
+			if !has || i >= len(path) || path[i] != ']' {
+				return nil
+			}
+			if neg {
+				val = -val
+			}
+			i++
+			// we must be indexing into an array
+			seg, ok := scanArr(curRaw, val)
+			if !ok {
+				return sharedInvalidNode()
+			}
+			curRaw = seg
+			if len(seg) > 0 && seg[0] == '{' {
+				isObj = true
+			} else if len(seg) > 0 && seg[0] == '[' {
+				isObj = false
+			} else {
+				isObj = false
+			}
+		}
+
+		// If next char is '/', move to next segment
+		if i < len(path) {
+			if path[i] == '/' {
+				for i < len(path) && path[i] == '/' {
+					i++
+				}
+				continue
+			}
+			// unexpected token
+			return nil
+		}
+		// End of path -> build node from curRaw
+		if len(curRaw) == 0 {
+			return sharedInvalidNode()
+		}
+		switch curRaw[0] {
+		case '{':
+			return NewObjectNode(start, curRaw, start.GetFuncs())
+		case '[':
+			return NewArrayNode(start, curRaw, start.GetFuncs())
+		case '"':
+			needsUnescape := bytes.IndexByte(curRaw[1:len(curRaw)-1], '\\') != -1
+			return NewRawStringNode(start, curRaw, 1, len(curRaw)-1, needsUnescape, start.GetFuncs())
+		default:
+			// Primitive: number/bool/null
+			c := curRaw[0]
+			if (c >= '0' && c <= '9') || c == '-' {
+				return NewNumberNode(start, curRaw, start.GetFuncs())
+			}
+			if len(curRaw) >= 4 && (curRaw[0] == 't' || curRaw[0] == 'f') {
+				// true/false
+				val := curRaw[0] == 't'
+				return newRawBoolNode(start, curRaw, val, start.GetFuncs())
+			}
+			if len(curRaw) >= 4 && curRaw[0] == 'n' { // null
+				return newRawNullNode(start, curRaw, start.GetFuncs())
+			}
+			// Fallback safety
+			p := newParser(curRaw, start.GetFuncs())
+			return p.doParse(start)
+		}
+	}
+	return nil
+}
+
+// tryFastBracketQuery accelerates queries of the form:
+//
+//	a/b/c, a/b[0]/c, a/b[10]/c/d, ...
+//
+// It avoids building token slices and, crucially, constructs composite child
+// nodes (objects/arrays) in lazy form from raw segments instead of fully parsing
+// them. Returns nil if the path is not eligible or resolution fails.
+func tryFastBracketQuery(start core.Node, path string) core.Node {
+	if path == "" || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "//") {
+		return nil
+	}
+	// Skip leading slashes
+	i := 0
+	for i < len(path) && path[i] == '/' {
+		i++
+	}
+	if i >= len(path) {
+		return start
+	}
+
+	cur := start
+	for i < len(path) {
+		if !cur.IsValid() {
+			return sharedInvalidNode()
+		}
+		// Expect an object key segment before optional [index] chain
+		// Extract key until '/' or '['
+		kStart := i
+		for i < len(path) && path[i] != '/' && path[i] != '[' {
+			switch path[i] {
+			case '*', '@', '.':
+				return nil
+			}
+			i++
+		}
+		if kStart < i { // have a key
+			key := path[kStart:i]
+			// current must be object
+			o, ok := cur.(*objectNode)
+			if !ok || o.isDirty {
+				return nil
+			}
+			// If already parsed, use normal Get (fast enough)
+			if o.parsed.Load() {
+				cur = directObjectChild(o, key)
+			} else {
+				o.mu.Lock()
+				// re-check under lock
+				if o.parsed.Load() {
+					o.mu.Unlock()
+					cur = o.Get(key)
+				} else {
+					child, found, ok := fastScanObjectChildLocked(o, key)
+					o.mu.Unlock()
+					if !ok {
+						return nil
+					}
+					if !found {
+						return sharedInvalidNode()
+					}
+					cur = child
+				}
+			}
+		}
+
+		// Handle zero or more [index] after the key
+		for i < len(path) && path[i] == '[' {
+			// parse integer index
+			i++
+			if i >= len(path) {
+				return nil
+			}
+			neg := false
+			if path[i] == '-' {
+				neg = true
+				i++
+			}
+			val := 0
+			hasDigit := false
+			for i < len(path) && path[i] >= '0' && path[i] <= '9' {
+				hasDigit = true
+				val = val*10 + int(path[i]-'0')
+				i++
+			}
+			if i >= len(path) || path[i] != ']' || !hasDigit {
+				return nil
+			}
+			if neg {
+				val = -val
+			}
+			i++ // consume ']'
+
+			// current must be array to index
+			a, ok := cur.(*arrayNode)
+			if !ok {
+				return nil
+			}
+			if a.parsed.Load() || len(a.raw) == 0 {
+				cur = directArrayChild(a, val)
+			} else {
+				cur = a.Index(val)
+			}
+			if !cur.IsValid() {
+				return cur
+			}
+		}
+
+		// If next is '/', consume and continue to next key
+		if i < len(path) {
+			if path[i] == '/' {
+				if i+1 < len(path) && path[i+1] == '/' {
+					return nil
+				}
+				i++
+				// skip consecutive slashes
+				for i < len(path) && path[i] == '/' {
+					i++
+				}
+				continue
+			}
+			// Unexpected token -> bail to generic path
+			return nil
+		}
+		// End of path
+		return cur
+	}
+	return cur
 }

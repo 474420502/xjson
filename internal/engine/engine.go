@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+
 	"github.com/474420502/xjson/internal/core"
 )
 
@@ -17,7 +18,7 @@ func MustParseWithFuncs(data []byte, funcs *map[string]core.UnaryPathFunc) (core
 		funcs = &map[string]core.UnaryPathFunc{}
 	}
 	p := newParser(data, funcs)
-	node, err := p.Parse()
+	node, err := p.ParseFull()
 	if err != nil {
 		return nil, err
 	}
@@ -85,4 +86,31 @@ var _ core.Node = (*invalidNode)(nil)
 func Traverse(n core.Node, path string) core.Node {
 	// TODO: To be implemented based on the query module
 	return newInvalidNode(fmt.Errorf("not implemented yet"))
+}
+
+func forceParseTree(node core.Node) {
+	switch typed := node.(type) {
+	case *objectNode:
+		if !typed.parsed.Load() {
+			if len(typed.value) > 0 || typed.isDirty {
+				typed.parsed.Store(true)
+			} else {
+				typed.lazyParse()
+			}
+		}
+		for _, child := range typed.value {
+			forceParseTree(child)
+		}
+	case *arrayNode:
+		if !typed.parsed.Load() {
+			if len(typed.value) > 0 || typed.isDirty {
+				typed.parsed.Store(true)
+			} else {
+				typed.lazyParse()
+			}
+		}
+		for _, child := range typed.value {
+			forceParseTree(child)
+		}
+	}
 }
