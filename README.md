@@ -27,21 +27,21 @@ Latest local benchmark run after the recent eager-parse, query fast-path, and ro
 | Scenario | XJSON | GJSON | JsonIter | encoding/json |
 | :--- | :--- | :--- | :--- | :--- |
 | Parse | `24330 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
-| Query on prepared data | `17.96 ns/op` | `411.9 ns/op` | `78.63 ns/op` | `78.17 ns/op` |
+| Query on prepared data | `18.48 ns/op` | `419.1 ns/op` | `81.51 ns/op` | `79.22 ns/op` |
 | Parse each time then query | `85180 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
 | Mutate only on prepared data | `49.46 ns/op` | N/A | `21.81 ns/op` | `22.10 ns/op` |
 | Parse, mutate, then serialize | `61228 ns/op` | N/A | `50733 ns/op` | `73817 ns/op` |
 
 Additional XJSON query split on the same machine:
 
-- `BenchmarkXJSONQuery`: `17.96 ns/op`, `0 B/op`, `0 allocs/op` with a repeated identical path hitting the root query cache after the first lookup.
-- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `209.6 ns/op`, `0 B/op`, `0 allocs/op` for the same path on an already parsed tree after explicit cache reset.
+- `BenchmarkXJSONQuery`: `18.48 ns/op`, `0 B/op`, `0 allocs/op` with a repeated identical path hitting the root query cache after the first lookup.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `165.4 ns/op`, `0 B/op`, `0 allocs/op` for the same path on an already parsed tree after explicit cache reset.
 
 Unit test coverage snapshot from the same revision:
 
-- Overall repository statement coverage: `56.0%`.
-- Query hot path coverage highlights: `applySimpleQuery` `83.8%`, `fastScanObjectChildLocked` `83.1%`, `tryFastBracketQuery` `87.5%`.
-- Query parser coverage highlights: `Parse` `81.0%`, `parseBracketExpression` `78.0%`, `parseQuotedKey` `93.3%`.
+- Overall repository statement coverage: `87.5%`.
+- Query hot path coverage highlights: `applySimpleQuery` `85.7%`, `fastScanObjectChildLocked` `87.2%`, `tryFastBracketQuery` `89.5%`.
+- Query parser coverage highlights: `Parse` `81.0%`, `parseBracketExpression` `92.0%`, `parseQuotedKey` `100.0%`.
 
 Memory snapshot from the same run:
 
@@ -62,7 +62,7 @@ Notes:
 - Coverage command: `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`.
 - All query benchmarks now target the same deep field: `...users[0].profile.personal.name`.
 - `BenchmarkXJSONQuery` and `BenchmarkXJSONQuery_OnceParse_MultiQuery` reuse the same parsed root and identical query path, so the latest XJSON number reflects a root-level query-cache hit after the first lookup.
-- `BenchmarkXJSONQuery_OnceParse_FirstHit` isolates the cold prepared-query path on XJSON. After the latest changes, its remaining cost is mostly per-segment string map lookups plus one cache write, not parser work or cache-map allocation.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit` isolates the cold prepared-query path on XJSON. After the latest changes, its remaining cost is mostly fast-plan execution, raw object child lookup, and one cache write, not parser work or cache-map allocation.
 - All mutation benchmarks now target the same deep object: `...users[0].profile.personal.age`, then serialize the whole document.
 - `gjson` is query-only, so parse and mutation rows are marked `N/A`.
 - `BenchmarkXJSONSet_Prepared_MutateOnly`, `BenchmarkJsonIterSet_Prepared_MutateOnly`, and `BenchmarkStandardJSONSet_Prepared_MutateOnly` isolate write-path cost on already prepared data.

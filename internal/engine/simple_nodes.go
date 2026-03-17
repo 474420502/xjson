@@ -68,6 +68,11 @@ func (n *stringNode) RawString() (string, bool) {
 
 	bytesRegion := s[sstart:send]
 	if !n.needsUnescape {
+		if len(bytesRegion) == 0 {
+			n.value = ""
+			n.decoded = true
+			return "", true
+		}
 		// Zero-copy string conversion using unsafe
 		str := unsafe.String(&bytesRegion[0], len(bytesRegion))
 		n.value = str
@@ -79,6 +84,12 @@ func (n *stringNode) RawString() (string, bool) {
 	if err != nil {
 		n.setError(err)
 		return "", false
+	}
+	if len(dec) == 0 {
+		n.cachedDecoded = dec
+		n.value = ""
+		n.decoded = true
+		return "", true
 	}
 	n.cachedDecoded = dec
 	n.value = unsafe.String(&dec[0], len(dec))

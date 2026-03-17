@@ -9,21 +9,21 @@
 | 场景 | XJSON | GJSON | JsonIter | encoding/json |
 | :--- | :--- | :--- | :--- | :--- |
 | 解析 | `24330 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
-| 已准备数据上的查询 | `17.96 ns/op` | `411.9 ns/op` | `78.63 ns/op` | `78.17 ns/op` |
+| 已准备数据上的查询 | `18.48 ns/op` | `419.1 ns/op` | `81.51 ns/op` | `79.22 ns/op` |
 | 每次重新解析后再查询 | `85180 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
 | 已准备数据上的纯修改 | `49.46 ns/op` | N/A | `21.81 ns/op` | `22.10 ns/op` |
 | 解析、修改后再序列化 | `61228 ns/op` | N/A | `50733 ns/op` | `73817 ns/op` |
 
 同一台机器上的 XJSON 查询再细分如下：
 
-- `BenchmarkXJSONQuery`: `17.96 ns/op`, `0 B/op`, `0 allocs/op`，表示同一路径重复查询时，在首轮之后命中 root query cache 的结果。
-- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `209.6 ns/op`, `0 B/op`, `0 allocs/op`，表示同一路径在“已解析树 + 显式清空 cache”条件下的首轮冷查询成本。
+- `BenchmarkXJSONQuery`: `18.48 ns/op`, `0 B/op`, `0 allocs/op`，表示同一路径重复查询时，在首轮之后命中 root query cache 的结果。
+- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `165.4 ns/op`, `0 B/op`, `0 allocs/op`，表示同一路径在“已解析树 + 显式清空 cache”条件下的首轮冷查询成本。
 
 同一版本上的单元测试覆盖率快照：
 
-- 仓库整体语句覆盖率：`56.0%`。
-- 查询热路径覆盖率重点：`applySimpleQuery` `83.8%`、`fastScanObjectChildLocked` `83.1%`、`tryFastBracketQuery` `87.5%`。
-- 查询解析器覆盖率重点：`Parse` `81.0%`、`parseBracketExpression` `78.0%`、`parseQuotedKey` `93.3%`。
+- 仓库整体语句覆盖率：`87.5%`。
+- 查询热路径覆盖率重点：`applySimpleQuery` `85.7%`、`fastScanObjectChildLocked` `87.2%`、`tryFastBracketQuery` `89.5%`。
+- 查询解析器覆盖率重点：`Parse` `81.0%`、`parseBracketExpression` `92.0%`、`parseQuotedKey` `100.0%`。
 
 同一轮测试中的部分内存结果：
 
@@ -44,7 +44,7 @@
 - 覆盖率命令：`go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`。
 - 所有查询 benchmark 现在都对准同一条深路径：`...users[0].profile.personal.name`。
 - `BenchmarkXJSONQuery` 和 `BenchmarkXJSONQuery_OnceParse_MultiQuery` 会复用同一个已解析 root 和完全相同的查询路径，所以最新的 XJSON 查询数字体现的是首轮之后命中根级 query cache 的结果。
-- `BenchmarkXJSONQuery_OnceParse_FirstHit` 用来隔离 XJSON 在已解析树上的冷查询路径。当前剩余成本主要是逐段字符串 map 查找和一次 cache 写入，而不是 parser 本身或 cache map 重新分配。
+- `BenchmarkXJSONQuery_OnceParse_FirstHit` 用来隔离 XJSON 在已解析树上的冷查询路径。当前剩余成本主要是快速查询计划执行、raw object 子节点定位和一次 cache 写入，而不是 parser 本身或 cache map 重新分配。
 - 所有修改 benchmark 现在都对准同一个深层对象：`...users[0].profile.personal.age`，并在修改后序列化整份文档。
 - `gjson` 只提供查询能力，因此解析和修改场景记为 `N/A`。
 - `BenchmarkXJSONSet_Prepared_MutateOnly`、`BenchmarkJsonIterSet_Prepared_MutateOnly`、`BenchmarkStandardJSONSet_Prepared_MutateOnly` 用来单独衡量已准备数据上的纯修改成本。

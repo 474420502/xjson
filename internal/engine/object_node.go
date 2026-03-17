@@ -24,8 +24,16 @@ func compareStringBytes(s string, b []byte) bool {
 type objectNode struct {
 	baseNode
 	value      map[string]core.Node
+	rawIndex   map[string]rawValueSpan
+	rawScanPos int
+	rawDone    bool
 	sortedKeys []string
 	isDirty    bool
+}
+
+type rawValueSpan struct {
+	start int
+	end   int
 }
 
 func (n *objectNode) Type() core.NodeType {
@@ -47,7 +55,15 @@ func (n *objectNode) Get(key string) core.Node {
 		}
 		return sharedInvalidNode()
 	}
-	// 优先只解析目标 key
+	n.mu.Lock()
+	child, found, ok := fastScanObjectChildLocked(n, key)
+	n.mu.Unlock()
+	if ok {
+		if found {
+			return child
+		}
+		return sharedInvalidNode()
+	}
 	n.lazyParsePath([]string{key})
 	if child, ok := n.value[key]; ok {
 		return child
@@ -60,8 +76,11 @@ func (n *objectNode) GetWithPath(key string, path []string) core.Node {
 	if n.err != nil {
 		return n
 	}
-	// Only parse what we need for this path
-	n.lazyParsePath(path)
+	if len(path) > 0 {
+		n.lazyParsePath(path)
+	} else {
+		n.lazyParsePath([]string{key})
+	}
 
 	if child, ok := n.value[key]; ok {
 		return child
@@ -191,6 +210,9 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 		return n
 	}
 	n.lazyParse()
+	if n.value == nil {
+		n.value = make(map[string]core.Node)
+	}
 	n.isDirty = true // Mark as dirty so String() will regenerate
 
 	// Also mark all ancestors as dirty to ensure String() regeneration
@@ -411,183 +433,12 @@ func (n *objectNode) lazyParsePath(path []string) {
 		return
 	}
 
-	// Check if we already have the key
 	key := path[0]
-	if n.value != nil {
-		if _, ok := n.value[key]; ok {
-			n.mu.Unlock()
-			return
-		}
-	}
-
-	// Try to find and parse only the requested key by scanning the raw object
-	raw := n.raw
-	// find opening brace
-	pos := 0
-	for pos < len(raw) && raw[pos] != '{' {
-		pos++
-	}
-	if pos >= len(raw) {
-		// malformed, fallback to full parse
-		n.mu.Unlock()
-		n.lazyParse()
+	_, _, ok := fastScanObjectChildLocked(n, key)
+	n.mu.Unlock()
+	if ok {
 		return
 	}
-	pos++ // skip '{'
-
-	// helper to skip whitespace
-	skipWS := func() {
-		for pos < len(raw) {
-			c := raw[pos]
-			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
-				pos++
-				continue
-			}
-			break
-		}
-	}
-
-	// Use direct string comparison without []byte conversion
-
-	for pos < len(raw) {
-		skipWS()
-		if pos >= len(raw) {
-			break
-		}
-		if raw[pos] == '}' {
-			// end of object
-			break
-		}
-		// expect quoted key
-		if raw[pos] != '"' {
-			// malformed or unexpected token, fallback to full parse
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-		// find key end
-		keyEnd := findMatchingQuote(raw, pos)
-		if keyEnd == -1 {
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-		keyRaw := raw[pos+1 : keyEnd]
-
-		// Use direct string/byte comparison without allocation
-		var keyMatches bool
-		var keyStr string
-		if bytes.IndexByte(keyRaw, '\\') == -1 {
-			// No escapes, direct comparison and zero-copy string conversion
-			keyMatches = compareStringBytes(key, keyRaw)
-			if keyMatches && len(keyRaw) > 0 {
-				keyStr = unsafe.String(&keyRaw[0], len(keyRaw))
-			}
-		} else {
-			// Has escapes, need to unescape for comparison
-			keyUnesc, err := unescape(keyRaw)
-			if err != nil {
-				n.mu.Unlock()
-				n.lazyParse()
-				return
-			}
-			keyMatches = compareStringBytes(key, keyUnesc)
-			if keyMatches && len(keyUnesc) > 0 {
-				keyStr = unsafe.String(&keyUnesc[0], len(keyUnesc))
-			}
-		}
-
-		pos = keyEnd + 1
-		skipWS()
-		if pos >= len(raw) || raw[pos] != ':' {
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-		pos++ // skip ':'
-		skipWS()
-		if pos >= len(raw) {
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-
-		// determine value bounds
-		var valEnd int
-		switch raw[pos] {
-		case '{':
-			valEnd = findMatchingBrace(raw, pos)
-		case '[':
-			valEnd = findMatchingBracket(raw, pos)
-		case '"':
-			valEnd = findMatchingQuote(raw, pos)
-		default:
-			valEnd = findValueEnd(raw, pos)
-		}
-		if valEnd == -1 {
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-
-		// If this is the key we want, parse only the value segment and attach
-		if keyMatches {
-			segment := raw[pos : valEnd+1]
-
-			// Fast path for string values to avoid parser creation overhead
-			var child core.Node
-			if len(segment) >= 2 && segment[0] == '"' && segment[len(segment)-1] == '"' {
-				// String value - use optimized string node creation
-				needsUnescape := bytes.IndexByte(segment[1:len(segment)-1], '\\') != -1
-				child = NewRawStringNode(n, segment, 1, len(segment)-1, needsUnescape, n.funcs)
-			} else {
-				// Other values - use parser
-				p := newParser(segment, n.funcs)
-				child = p.doParse(n)
-			}
-
-			if child == nil || !child.IsValid() {
-				if child != nil {
-					n.err = child.Error()
-					n.mu.Unlock()
-					return
-				}
-				n.mu.Unlock()
-				n.lazyParse()
-				return
-			}
-			// ensure parent pointer is correct
-			if bn, ok := child.(*baseNode); ok {
-				bn.parent = n
-			} else if inode, ok := child.(interface{ setParent(core.Node) }); ok {
-				inode.setParent(n)
-			}
-			if n.value == nil {
-				n.value = make(map[string]core.Node, 4) // Pre-allocate reasonable capacity
-			}
-			n.value[keyStr] = child
-			n.mu.Unlock()
-			return
-		}
-
-		// move position to after the value
-		pos = valEnd + 1
-		skipWS()
-		if pos < len(raw) && raw[pos] == ',' {
-			pos++
-			continue
-		} else if pos < len(raw) && raw[pos] == '}' {
-			break
-		} else {
-			// malformed -> fallback
-			n.mu.Unlock()
-			n.lazyParse()
-			return
-		}
-	}
-
-	// key not found in object, fallback to full parse to establish state
-	n.mu.Unlock()
 	n.lazyParse()
 }
 

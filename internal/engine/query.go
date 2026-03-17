@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/474420502/xjson/internal/core"
 )
@@ -487,20 +488,70 @@ func fastConstructObjectChild(o *objectNode, segment []byte) core.Node {
 	return child
 }
 
-func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool) {
-	if child, ok := o.value[key]; ok {
-		return child, true, true
+func matchObjectKey(target string, keyRaw []byte) (bool, string, error) {
+	if bytes.IndexByte(keyRaw, '\\') == -1 {
+		if len(keyRaw) == 0 {
+			return target == "", "", nil
+		}
+		keyStr := unsafe.String(&keyRaw[0], len(keyRaw))
+		return compareStringBytes(target, keyRaw), keyStr, nil
 	}
+	keyUnesc, err := unescape(keyRaw)
+	if err != nil {
+		return false, "", err
+	}
+	if len(keyUnesc) == 0 {
+		return target == "", "", nil
+	}
+	keyStr := unsafe.String(&keyUnesc[0], len(keyUnesc))
+	return compareStringBytes(target, keyUnesc), keyStr, nil
+}
 
+func initObjectRawScanLocked(o *objectNode) ([]byte, int, bool) {
 	raw := o.raw
+	if len(raw) == 0 {
+		return nil, 0, false
+	}
+	if o.rawDone {
+		return raw, o.rawScanPos, true
+	}
+	if o.rawScanPos != 0 {
+		return raw, o.rawScanPos, true
+	}
 	pos := 0
 	for pos < len(raw) && raw[pos] != '{' {
 		pos++
 	}
 	if pos >= len(raw) {
+		return nil, 0, false
+	}
+	o.rawScanPos = pos + 1
+	return raw, o.rawScanPos, true
+}
+
+func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool) {
+	if child, ok := o.value[key]; ok {
+		return child, true, true
+	}
+	if span, ok := o.rawIndex[key]; ok {
+		child := fastConstructObjectChild(o, o.raw[span.start:span.end])
+		if child == nil {
+			return nil, false, false
+		}
+		if o.value == nil {
+			o.value = make(map[string]core.Node, 4)
+		}
+		o.value[key] = child
+		return child, true, true
+	}
+	if o.rawDone {
+		return nil, false, true
+	}
+
+	raw, pos, ok := initObjectRawScanLocked(o)
+	if !ok {
 		return nil, false, false
 	}
-	pos++
 
 	skipWS := func() {
 		for pos < len(raw) {
@@ -516,7 +567,9 @@ func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool
 	for pos < len(raw) {
 		skipWS()
 		if pos >= len(raw) || raw[pos] == '}' {
-			break
+			o.rawScanPos = pos
+			o.rawDone = true
+			return nil, false, true
 		}
 		if raw[pos] != '"' {
 			return nil, false, false
@@ -526,7 +579,10 @@ func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool
 			return nil, false, false
 		}
 		keyRaw := raw[pos+1 : keyEnd]
-		match := bytes.IndexByte(keyRaw, '\\') == -1 && compareStringBytes(key, keyRaw)
+		match, keyStr, err := matchObjectKey(key, keyRaw)
+		if err != nil {
+			return nil, false, false
+		}
 		pos = keyEnd + 1
 		skipWS()
 		if pos >= len(raw) || raw[pos] != ':' {
@@ -552,6 +608,24 @@ func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool
 		if valEnd == -1 {
 			return nil, false, false
 		}
+		if o.rawIndex == nil {
+			o.rawIndex = make(map[string]rawValueSpan, 4)
+		}
+		o.rawIndex[keyStr] = rawValueSpan{start: pos, end: valEnd + 1}
+
+		nextPos := valEnd + 1
+		for nextPos < len(raw) {
+			c := raw[nextPos]
+			if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+				nextPos++
+				continue
+			}
+			if c == ',' {
+				nextPos++
+			}
+			break
+		}
+		o.rawScanPos = nextPos
 
 		if match {
 			child := fastConstructObjectChild(o, raw[pos:valEnd+1])
@@ -565,18 +639,12 @@ func fastScanObjectChildLocked(o *objectNode, key string) (core.Node, bool, bool
 			return child, true, true
 		}
 
-		pos = valEnd + 1
-		skipWS()
-		if pos < len(raw) && raw[pos] == ',' {
-			pos++
-			continue
-		}
-		if pos < len(raw) && raw[pos] == '}' {
-			break
-		}
-		return nil, false, false
+		pos = nextPos
+		continue
 	}
 
+	o.rawDone = true
+	o.rawScanPos = pos
 	return nil, false, true
 }
 
@@ -1166,32 +1234,19 @@ func tryFastBracketQuery(start core.Node, path string) core.Node {
 	if path == "" || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "//") {
 		return nil
 	}
-	// Skip leading slashes
-	i := 0
-	for i < len(path) && path[i] == '/' {
-		i++
+	plan, ok := getFastQueryPlan(path)
+	if !ok {
+		return nil
 	}
-	if i >= len(path) {
+	if len(plan.segments) == 0 {
 		return start
 	}
-
 	cur := start
-	for i < len(path) {
+	for _, segment := range plan.segments {
 		if !cur.IsValid() {
 			return sharedInvalidNode()
 		}
-		// Expect an object key segment before optional [index] chain
-		// Extract key until '/' or '['
-		kStart := i
-		for i < len(path) && path[i] != '/' && path[i] != '[' {
-			switch path[i] {
-			case '*', '@', '.':
-				return nil
-			}
-			i++
-		}
-		if kStart < i { // have a key
-			key := path[kStart:i]
+		if segment.key != "" {
 			// current must be object
 			o, ok := cur.(*objectNode)
 			if !ok || o.isDirty {
@@ -1199,15 +1254,15 @@ func tryFastBracketQuery(start core.Node, path string) core.Node {
 			}
 			// If already parsed, use normal Get (fast enough)
 			if o.parsed.Load() {
-				cur = directObjectChild(o, key)
+				cur = directObjectChild(o, segment.key)
 			} else {
 				o.mu.Lock()
 				// re-check under lock
 				if o.parsed.Load() {
 					o.mu.Unlock()
-					cur = o.Get(key)
+					cur = o.Get(segment.key)
 				} else {
-					child, found, ok := fastScanObjectChildLocked(o, key)
+					child, found, ok := fastScanObjectChildLocked(o, segment.key)
 					o.mu.Unlock()
 					if !ok {
 						return nil
@@ -1220,66 +1275,21 @@ func tryFastBracketQuery(start core.Node, path string) core.Node {
 			}
 		}
 
-		// Handle zero or more [index] after the key
-		for i < len(path) && path[i] == '[' {
-			// parse integer index
-			i++
-			if i >= len(path) {
-				return nil
-			}
-			neg := false
-			if path[i] == '-' {
-				neg = true
-				i++
-			}
-			val := 0
-			hasDigit := false
-			for i < len(path) && path[i] >= '0' && path[i] <= '9' {
-				hasDigit = true
-				val = val*10 + int(path[i]-'0')
-				i++
-			}
-			if i >= len(path) || path[i] != ']' || !hasDigit {
-				return nil
-			}
-			if neg {
-				val = -val
-			}
-			i++ // consume ']'
-
+		for _, idx := range segment.indices {
 			// current must be array to index
 			a, ok := cur.(*arrayNode)
 			if !ok {
 				return nil
 			}
 			if a.parsed.Load() || len(a.raw) == 0 {
-				cur = directArrayChild(a, val)
+				cur = directArrayChild(a, idx)
 			} else {
-				cur = a.Index(val)
+				cur = a.Index(idx)
 			}
 			if !cur.IsValid() {
 				return cur
 			}
 		}
-
-		// If next is '/', consume and continue to next key
-		if i < len(path) {
-			if path[i] == '/' {
-				if i+1 < len(path) && path[i+1] == '/' {
-					return nil
-				}
-				i++
-				// skip consecutive slashes
-				for i < len(path) && path[i] == '/' {
-					i++
-				}
-				continue
-			}
-			// Unexpected token -> bail to generic path
-			return nil
-		}
-		// End of path
-		return cur
 	}
 	return cur
 }

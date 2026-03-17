@@ -227,6 +227,9 @@ func (p *parser) parseArray(parent core.Node) core.Node {
 		node.value = append(node.value, valueNode)
 
 		p.skipWhitespace()
+		if p.pos >= len(p.data) {
+			return newInvalidNode(fmt.Errorf("unterminated array"))
+		}
 		if p.data[p.pos] == ']' {
 			p.pos++
 			node.raw = p.data[start:p.pos]
@@ -269,6 +272,9 @@ func (p *parser) parseArrayFull(parent core.Node) core.Node {
 		node.value = append(node.value, valueNode)
 
 		p.skipWhitespace()
+		if p.pos >= len(p.data) {
+			return newInvalidNode(fmt.Errorf("unterminated array"))
+		}
 		if p.data[p.pos] == ']' {
 			p.pos++
 			node.raw = p.data[start:p.pos]

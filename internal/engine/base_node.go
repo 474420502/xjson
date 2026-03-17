@@ -429,9 +429,10 @@ func (n *baseNode) Array() []core.Node     { return nil }
 func (n *baseNode) MustArray() []core.Node { panic(core.ErrTypeAssertion) }
 func (n *baseNode) Interface() interface{} { return nil }
 func (n *baseNode) RawFloat() (float64, bool) {
-	switch n.Type() {
+	self := n.selfOrMe()
+	switch self.Type() {
 	case core.Number:
-		if nn, ok := n.self.(*numberNode); ok {
+		if nn, ok := self.(*numberNode); ok {
 			return nn.RawFloat()
 		}
 	case core.Bool:
@@ -445,17 +446,18 @@ func (n *baseNode) RawFloat() (float64, bool) {
 }
 
 func (n *baseNode) RawString() (string, bool) {
-	switch n.Type() {
+	self := n.selfOrMe()
+	switch self.Type() {
 	case core.Number:
-		if nn, ok := n.self.(*numberNode); ok {
+		if nn, ok := self.(*numberNode); ok {
 			return nn.RawString()
 		}
 	case core.Bool:
-		if bn, ok := n.self.(*boolNode); ok {
+		if bn, ok := self.(*boolNode); ok {
 			return bn.RawString()
 		}
 	case core.String:
-		if sn, ok := n.self.(*stringNode); ok {
+		if sn, ok := self.(*stringNode); ok {
 			return sn.RawString()
 		}
 	case core.Null:

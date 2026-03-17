@@ -444,6 +444,7 @@ func (n *arrayNode) lazyParsePath(path []string) {
 		if raw[pos] == ']' {
 			// end of array
 			n.parsed.Store(true)
+			n.mu.Unlock()
 			return
 		}
 
