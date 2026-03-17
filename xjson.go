@@ -40,8 +40,45 @@ type nodeWrapper struct {
 	core.Node
 }
 
+type PreparedQuery struct {
+	compiled *engine.CompiledQuery
+}
+
 func (nw nodeWrapper) SetByPath(path string, value interface{}) Node {
 	return nodeWrapper{nw.Node.SetByPath(path, value)}
+}
+
+func CompileQuery(path string) (*PreparedQuery, error) {
+	compiled, err := engine.CompileQuery(path)
+	if err != nil {
+		return nil, err
+	}
+	return &PreparedQuery{compiled: compiled}, nil
+}
+
+func MustCompileQuery(path string) *PreparedQuery {
+	compiled, err := CompileQuery(path)
+	if err != nil {
+		panic(err)
+	}
+	return compiled
+}
+
+func (pq *PreparedQuery) Path() string {
+	if pq == nil || pq.compiled == nil {
+		return ""
+	}
+	return pq.compiled.Path()
+}
+
+func (pq *PreparedQuery) Query(node Node) Node {
+	if pq == nil || pq.compiled == nil {
+		return nil
+	}
+	if wrapped, ok := node.(nodeWrapper); ok {
+		node = wrapped.Node
+	}
+	return pq.compiled.Query(node)
 }
 
 // Parse parses a raw JSON string or bytes and returns the root Node.

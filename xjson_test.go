@@ -51,3 +51,30 @@ func TestNodeWrapperSetByPath(t *testing.T) {
 		t.Fatalf("expected demo, got %q", got)
 	}
 }
+
+func TestPreparedQueryWrapper(t *testing.T) {
+	root, err := MustParse(`{"store":{"books":[{"title":"Book 1"},{"title":"Book 2"}]}}`)
+	if err != nil {
+		t.Fatalf("MustParse failed: %v", err)
+	}
+
+	pq, err := CompileQuery("/store/books[1]/title")
+	if err != nil {
+		t.Fatalf("CompileQuery failed: %v", err)
+	}
+	if pq.Path() != "/store/books[1]/title" {
+		t.Fatalf("unexpected prepared path: %q", pq.Path())
+	}
+	if got := pq.Query(root); !got.IsValid() || got.String() != "Book 2" {
+		t.Fatalf("unexpected prepared query result: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
+
+	if _, err := CompileQuery("/store["); err == nil {
+		t.Fatal("expected CompileQuery syntax error")
+	}
+
+	must := MustCompileQuery("/store/books[0]/title")
+	if got := must.Query(root).String(); got != "Book 1" {
+		t.Fatalf("unexpected MustCompileQuery result: %q", got)
+	}
+}

@@ -189,6 +189,7 @@ func (p *parser) parseObjectFull(parent core.Node) core.Node {
 			node.raw = p.data[start:p.pos]
 			node.start = 0
 			node.end = len(node.raw)
+			node.rebuildInlineEntries()
 			node.parsed.Store(true)
 			return node
 		}

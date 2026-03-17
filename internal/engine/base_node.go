@@ -27,8 +27,8 @@ type baseNode struct {
 	self core.Node
 
 	// query cache for performance optimization
-	queryCache map[string]core.Node
-	cacheMutex sync.RWMutex
+	queryCache    map[string]core.Node
+	cacheMutex    sync.RWMutex
 	hasQueryCache atomic.Bool
 }
 
@@ -36,6 +36,10 @@ const maxQueryCacheEntries = 128
 
 // getCachedQueryResult retrieves a cached query result if available
 func (n *baseNode) getCachedQueryResult(path string) (core.Node, bool) {
+	if !n.hasQueryCache.Load() {
+		return nil, false
+	}
+
 	n.cacheMutex.RLock()
 	defer n.cacheMutex.RUnlock()
 
@@ -372,6 +376,7 @@ func (n *baseNode) SetValue(v interface{}) core.Node {
 			markAncestorNodesDirty(parent.parent)
 			parent.baseNode.clearQueryCache()
 			parent.value[key] = replacement
+			parent.rebuildInlineEntries()
 			return replacement
 		}
 	case *arrayNode:

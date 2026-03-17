@@ -285,7 +285,19 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 	if err != nil {
 		return newInvalidNode(err)
 	}
+	cur := executeQueryTokens(start, tokens)
 
+	// Cache the result (optional)
+	if enableQueryCache {
+		if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+			bn.setCachedQueryResult(path, cur)
+		}
+	}
+
+	return cur
+}
+
+func executeQueryTokens(start core.Node, tokens []queryToken) core.Node {
 	cur := start
 	for _, t := range tokens {
 
@@ -420,18 +432,13 @@ func applySimpleQuery(start core.Node, path string) core.Node {
 			return newInvalidNode(fmt.Errorf("nil during query"))
 		}
 	}
-
-	// Cache the result (optional)
-	if enableQueryCache {
-		if bn, ok := start.(interface{ setCachedQueryResult(string, core.Node) }); ok {
-			bn.setCachedQueryResult(path, cur)
-		}
-	}
-
 	return cur
 }
 
 func directObjectChild(o *objectNode, key string) core.Node {
+	if child, ok := o.lookupInlineChild(key); ok {
+		return child
+	}
 	if child, ok := o.value[key]; ok {
 		return child
 	}
@@ -1238,6 +1245,13 @@ func tryFastBracketQuery(start core.Node, path string) core.Node {
 	if !ok {
 		return nil
 	}
+	return executeFastQueryPlan(start, plan)
+}
+
+func executeFastQueryPlan(start core.Node, plan *fastQueryPlan) core.Node {
+	if plan == nil {
+		return nil
+	}
 	if len(plan.segments) == 0 {
 		return start
 	}
@@ -1292,4 +1306,185 @@ func tryFastBracketQuery(start core.Node, path string) core.Node {
 		}
 	}
 	return cur
+}
+
+func executeFastQuerySteps(start core.Node, steps []fastQueryStep) core.Node {
+	if len(steps) == 0 {
+		return start
+	}
+	cur := start
+	for _, step := range steps {
+		if !cur.IsValid() {
+			return sharedInvalidNode()
+		}
+		switch step.kind {
+		case fastQueryStepKey:
+			o, ok := cur.(*objectNode)
+			if !ok || o.isDirty {
+				return nil
+			}
+			if o.parsed.Load() {
+				cur = directObjectChild(o, step.key)
+				continue
+			}
+			o.mu.Lock()
+			if o.parsed.Load() {
+				o.mu.Unlock()
+				cur = o.Get(step.key)
+				continue
+			}
+			child, found, ok := fastScanObjectChildLocked(o, step.key)
+			o.mu.Unlock()
+			if !ok {
+				return nil
+			}
+			if !found {
+				return sharedInvalidNode()
+			}
+			cur = child
+		case fastQueryStepIndex:
+			a, ok := cur.(*arrayNode)
+			if !ok {
+				return nil
+			}
+			if a.parsed.Load() || len(a.raw) == 0 {
+				cur = directArrayChild(a, step.index)
+			} else {
+				cur = a.Index(step.index)
+			}
+			if !cur.IsValid() {
+				return cur
+			}
+		default:
+			return nil
+		}
+	}
+	return cur
+}
+
+func executeSpecializedFastQuery(start core.Node, spec *specializedFastQuery) core.Node {
+	if spec == nil {
+		return nil
+	}
+	switch spec.kind {
+	case specializedFastQueryAllKeys:
+		var visitedBuf [32]cachedSuffixTarget
+		visited := visitedBuf[:0]
+		if len(spec.keys) > len(visitedBuf) {
+			visited = make([]cachedSuffixTarget, 0, len(spec.keys))
+		}
+		result, visited, done := executePreparedObjectKeyChainWithCache(start, spec.keys, spec.suffixes, visited)
+		if done {
+			return result
+		}
+		cacheSuffixTargets(visited, result)
+		return result
+	case specializedFastQueryKeysIndexKeys:
+		var visitedBuf [32]cachedSuffixTarget
+		visited := visitedBuf[:0]
+		needed := len(spec.preKeys) + len(spec.postKeys) + 1
+		if needed > len(visitedBuf) {
+			visited = make([]cachedSuffixTarget, 0, needed)
+		}
+		cur, visited, done := executePreparedObjectKeyChainWithCache(start, spec.preKeys, spec.preSuffixes, visited)
+		if done {
+			return cur
+		}
+		if !cur.IsValid() {
+			return cur
+		}
+		if cached, ok := getCachedSuffixResult(cur, spec.arraySuffix); ok {
+			return cached
+		}
+		visited = append(visited, cachedSuffixTarget{node: cur, suffix: spec.arraySuffix})
+		a, ok := cur.(*arrayNode)
+		if !ok {
+			return nil
+		}
+		if a.parsed.Load() || len(a.raw) == 0 {
+			cur = directArrayChild(a, spec.index)
+		} else {
+			cur = a.Index(spec.index)
+		}
+		if !cur.IsValid() {
+			return cur
+		}
+		cur, visited, done = executePreparedObjectKeyChainWithCache(cur, spec.postKeys, spec.postSuffixes, visited)
+		if done {
+			return cur
+		}
+		cacheSuffixTargets(visited, cur)
+		return cur
+	default:
+		return nil
+	}
+}
+
+type cachedSuffixTarget struct {
+	node   core.Node
+	suffix string
+}
+
+func executePreparedObjectKeyChainWithCache(start core.Node, keys []string, suffixes []string, visited []cachedSuffixTarget) (core.Node, []cachedSuffixTarget, bool) {
+	cur := start
+	for i, key := range keys {
+		if !cur.IsValid() {
+			return sharedInvalidNode(), visited, false
+		}
+		if i < len(suffixes) {
+			if cached, ok := getCachedSuffixResult(cur, suffixes[i]); ok {
+				return cached, visited, true
+			}
+			if visited != nil {
+				visited = append(visited, cachedSuffixTarget{node: cur, suffix: suffixes[i]})
+			}
+		}
+		o, ok := cur.(*objectNode)
+		if !ok || o.isDirty {
+			return nil, visited, false
+		}
+		if o.parsed.Load() {
+			cur = directObjectChild(o, key)
+			continue
+		}
+		o.mu.Lock()
+		if o.parsed.Load() {
+			o.mu.Unlock()
+			cur = o.Get(key)
+			continue
+		}
+		child, found, ok := fastScanObjectChildLocked(o, key)
+		o.mu.Unlock()
+		if !ok {
+			return nil, visited, false
+		}
+		if !found {
+			return sharedInvalidNode(), visited, false
+		}
+		cur = child
+	}
+	return cur, visited, false
+}
+
+func getCachedSuffixResult(node core.Node, suffix string) (core.Node, bool) {
+	if suffix == "" {
+		return nil, false
+	}
+	if cachedNode, ok := node.(interface {
+		getCachedQueryResult(string) (core.Node, bool)
+	}); ok {
+		return cachedNode.getCachedQueryResult(suffix)
+	}
+	return nil, false
+}
+
+func cacheSuffixTargets(targets []cachedSuffixTarget, result core.Node) {
+	for _, target := range targets {
+		if target.suffix == "" {
+			continue
+		}
+		if cacheNode, ok := target.node.(interface{ setCachedQueryResult(string, core.Node) }); ok {
+			cacheNode.setCachedQueryResult(target.suffix, result)
+		}
+	}
 }

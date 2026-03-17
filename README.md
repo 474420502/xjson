@@ -1,10 +1,11 @@
-# XJSON - Unified Node Model JSON Processor (v0.2.0)
+# XJSON - Unified Node Model JSON Processor (v0.4.0)
 
 **XJSON** **is a powerful Go JSON processing library that uses a fully unified** **Node** **model, supporting path functions, streaming operations, and flexible query syntax.**
 
 ## ✨ Core Features
 
 * **🎯** **Single Node Type**: All operations are based on **xjson.Node**, with no **Result** **type.**
+* **🧠** **Prepared Queries**: Compile hot query paths once with **CompileQuery** or **MustCompileQuery** and reuse them with minimal overhead.
 * **🧩** **Path Functions**: Inject custom logic into queries using **/path[@func]/subpath** **syntax.**
 * **🔗** **Chained Operations**: Support fluent function registration, querying, and data operations.
 * **🌀** **Robust Error Handling**: Check for errors at the end of chained calls with **node.Error()**.
@@ -17,25 +18,29 @@
 
 - `Parse` keeps the tree lazy and parses child nodes on demand.
 - `MustParse` eagerly expands the full tree and is useful when you want upfront validation or repeated full-tree access.
+- `CompileQuery` and `MustCompileQuery` build reusable prepared-query handles for hot loops and repeated deep-path access.
 - The path parser currently covers quoted special keys, empty keys such as `['']`, escaped quotes and backslashes, negative indexes, slices, recursive descent, and repeated parent navigation like `../../meta`.
 - `Parse` and `MustParse` accept `string` or `[]byte` input.
 
 ## Benchmark Snapshot
 
-Latest local benchmark run after the recent eager-parse, query fast-path, and root-level query-cache optimizations:
+Latest local benchmark run for the v0.4.0 release preparation:
 
 | Scenario | XJSON | GJSON | JsonIter | encoding/json |
 | :--- | :--- | :--- | :--- | :--- |
-| Parse | `24330 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
-| Query on prepared data | `18.48 ns/op` | `419.1 ns/op` | `81.51 ns/op` | `79.22 ns/op` |
-| Parse each time then query | `85180 ns/op` | N/A | `21421 ns/op` | `54306 ns/op` |
-| Mutate only on prepared data | `49.46 ns/op` | N/A | `21.81 ns/op` | `22.10 ns/op` |
-| Parse, mutate, then serialize | `61228 ns/op` | N/A | `50733 ns/op` | `73817 ns/op` |
+| Parse | `25930 ns/op` | N/A | `22173 ns/op` | `54504 ns/op` |
+| Query on prepared data | `17.91 ns/op` | `441.9 ns/op` | `80.94 ns/op` | `80.37 ns/op` |
+| Prepared query on prepared data | `16.40 ns/op` | N/A | N/A | N/A |
+| Parse each time then query | `109626 ns/op` | N/A | `22145 ns/op` | `55180 ns/op` |
+| Mutate only on prepared data | `50.30 ns/op` | N/A | `22.01 ns/op` | `22.03 ns/op` |
+| Parse, mutate, then serialize | `63089 ns/op` | N/A | `51917 ns/op` | `74629 ns/op` |
 
 Additional XJSON query split on the same machine:
 
-- `BenchmarkXJSONQuery`: `18.48 ns/op`, `0 B/op`, `0 allocs/op` with a repeated identical path hitting the root query cache after the first lookup.
-- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `165.4 ns/op`, `0 B/op`, `0 allocs/op` for the same path on an already parsed tree after explicit cache reset.
+- `BenchmarkXJSONQuery`: `17.91 ns/op`, `0 B/op`, `0 allocs/op` with repeated identical paths after the root query-result cache is warm.
+- `BenchmarkXJSONPreparedQuery`: `16.40 ns/op`, `0 B/op`, `0 allocs/op` for the same path through a compiled prepared query.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit`: `124.2 ns/op`, `0 B/op`, `0 allocs/op` with the root query-result cache cleared before each iteration.
+- `BenchmarkXJSONPreparedQuery_OnceParse_FirstHit`: `108.6 ns/op`, `0 B/op`, `0 allocs/op` for the prepared-query variant under the same root-cache-reset condition.
 
 Unit test coverage snapshot from the same revision:
 
@@ -47,22 +52,24 @@ Memory snapshot from the same run:
 
 | Benchmark | Memory |
 | :--- | :--- |
-| `BenchmarkXJSONParse` | `79072 B/op`, `424 allocs/op` |
+| `BenchmarkXJSONParse` | `83040 B/op`, `424 allocs/op` |
 | `BenchmarkXJSONQuery` | `0 B/op`, `0 allocs/op` |
+| `BenchmarkXJSONPreparedQuery` | `0 B/op`, `0 allocs/op` |
 | `BenchmarkXJSONSet_Prepared_MutateOnly` | `0 B/op`, `0 allocs/op` |
-| `BenchmarkXJSONSet` | `469080 B/op`, `547 allocs/op` |
+| `BenchmarkXJSONSet` | `473172 B/op`, `547 allocs/op` |
 | `BenchmarkGJSONQuery` | `16 B/op`, `1 allocs/op` |
-| `BenchmarkJsonIterParse` | `26603 B/op`, `567 allocs/op` |
+| `BenchmarkJsonIterParse` | `26602 B/op`, `567 allocs/op` |
 | `BenchmarkStandardJSONParse` | `24960 B/op`, `446 allocs/op` |
 
 Notes:
 
 - Environment: `linux/amd64`, `AMD Ryzen 7 7700 8-Core Processor`.
-- Command: `go test -run '^$' -bench 'Benchmark(XJSON|GJSON|JsonIter|StandardJSON)(Parse|Decode|Query|Set(_Prepared_MutateOnly)?|Query_OnceParse_(FirstHit|MultiQuery)|Query_LazyParse_EachQuery)$' -benchmem ./...`
+- Command: `go test -run '^$' -bench 'Benchmark(XJSON|GJSON|JsonIter|StandardJSON)(Parse|Decode|Query|Set(_Prepared_MutateOnly)?|Query_OnceParse_(FirstHit|MultiQuery)|Query_LazyParse_EachQuery|PreparedQuery(_OnceParse_FirstHit)?)$' -benchmem ./...`
 - Coverage command: `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`.
 - All query benchmarks now target the same deep field: `...users[0].profile.personal.name`.
-- `BenchmarkXJSONQuery` and `BenchmarkXJSONQuery_OnceParse_MultiQuery` reuse the same parsed root and identical query path, so the latest XJSON number reflects a root-level query-cache hit after the first lookup.
-- `BenchmarkXJSONQuery_OnceParse_FirstHit` isolates the cold prepared-query path on XJSON. After the latest changes, its remaining cost is mostly fast-plan execution, raw object child lookup, and one cache write, not parser work or cache-map allocation.
+- `BenchmarkXJSONQuery` and `BenchmarkXJSONQuery_OnceParse_MultiQuery` reuse the same parsed root and identical query path, so the XJSON number reflects a root query-result cache hit after the first lookup.
+- `BenchmarkXJSONPreparedQuery` removes per-call path-string dispatch and reuses a compiled query handle.
+- `BenchmarkXJSONQuery_OnceParse_FirstHit` and `BenchmarkXJSONPreparedQuery_OnceParse_FirstHit` clear only the root query-result cache between iterations; descendant node state remains prepared.
 - All mutation benchmarks now target the same deep object: `...users[0].profile.personal.age`, then serialize the whole document.
 - `gjson` is query-only, so parse and mutation rows are marked `N/A`.
 - `BenchmarkXJSONSet_Prepared_MutateOnly`, `BenchmarkJsonIterSet_Prepared_MutateOnly`, and `BenchmarkStandardJSONSet_Prepared_MutateOnly` isolate write-path cost on already prepared data.
@@ -341,6 +348,24 @@ func arrayExample() {
 		age := user.Get("age").Int()
 		fmt.Printf("User %d: %s (age %d)\n", index, name, age)
 	})
+}
+```
+
+### Prepared Queries
+
+When the same deep path is evaluated repeatedly, compile it once and reuse it:
+
+```go
+prepared := xjson.MustCompileQuery("/store/books[0]/title")
+
+root, err := xjson.MustParse(data)
+if err != nil {
+	panic(err)
+}
+
+for i := 0; i < 1000; i++ {
+	title := prepared.Query(root).String()
+	_ = title
 }
 ```
 
@@ -876,6 +901,22 @@ funcs := root.GetFuncs()
 
 ## 🛠️ Complete API Reference
 
+### Top-Level Helpers
+
+| Helper | Description | Example |
+| --- | --- | --- |
+| **Parse(data)** | Parse lazily from `string` or `[]byte` | `root, err := xjson.Parse(data)` |
+| **MustParse(data)** | Parse eagerly from `string` or `[]byte` | `root, err := xjson.MustParse(data)` |
+| **CompileQuery(path)** | Compile a reusable prepared query | `pq, err := xjson.CompileQuery("/users[0]/name")` |
+| **MustCompileQuery(path)** | Compile a prepared query and panic on invalid syntax | `pq := xjson.MustCompileQuery("/users[0]/name")` |
+
+### Prepared Queries
+
+| Type / Method | Description | Example |
+| --- | --- | --- |
+| **PreparedQuery.Query(node)** | Execute the compiled query against a node | `pq.Query(root).String()` |
+| **PreparedQuery.Path()** | Return the original compiled path | `pq.Path()` |
+
 ### Navigation and Mutation
 
 | Method | Description | Example |
@@ -941,7 +982,8 @@ funcs := root.GetFuncs()
 
 Notes:
 
-- Query cache is currently disabled by default, so repeated identical path strings do not rely on a global compiled-path cache.
+- Root query-result caching and compiled fast-query plans are enabled on hot paths.
+- For repeated deep-path access in tight loops, prefer `CompileQuery` or `MustCompileQuery` over repeatedly reparsing the same path string.
 - The internal lazy iterators described above are engine-level optimizations, not a stable public API.
 
 **High-Performance Function Example:**
@@ -1028,6 +1070,43 @@ processedUsers := root.Query("/users[@withAvg]")
 * **Easy to Extend**: Modular design facilitates adding new features.
 
 ## 🔄 Upgrade Guide
+
+### Upgrading to v0.4.0
+
+**Highlights:**
+
+1. **Prepared Query API**:
+
+	```go
+	pq := xjson.MustCompileQuery("/users[0]/profile/name")
+	name := pq.Query(root).String()
+	```
+
+2. **More Aggressive Query Fast Paths**:
+
+	```go
+	// Repeated deep-path reads now benefit from root query-result caching
+	// and a compiled fast-plan executor.
+	value := root.Query("/users[0]/profile/name").String()
+	```
+
+3. **Parse Semantics Are Explicit**:
+
+	```go
+	lazyRoot, _ := xjson.Parse(data)
+	eagerRoot, _ := xjson.MustParse(data)
+	```
+
+4. **No Query Syntax Breakage**:
+
+	Existing path syntax remains compatible, including quoted keys, negative indexes,
+	slices, recursive descent, parent navigation, and path functions.
+
+**Compatibility Notes:**
+
+- Existing query code continues to work unchanged.
+- `CompileQuery` and `MustCompileQuery` are additive APIs for hot paths; they do not replace `Node.Query`.
+- Release benchmarks were refreshed to reflect the current prepared-query and root-cache behavior.
 
 ### Upgrading from v0.0.2 to v0.1.0
 

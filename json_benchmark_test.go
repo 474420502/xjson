@@ -14,10 +14,10 @@ import (
 var largeJSONData []byte
 
 const (
-  xjsonQueryPath  = "/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/users[0]/profile/personal/name"
-  xjsonSetPath    = "/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/users[0]/profile/personal"
-  gjsonQueryPath  = "level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.users.0.profile.personal.name"
-  updatedUserAge  = 31.0
+	xjsonQueryPath = "/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/users[0]/profile/personal/name"
+	xjsonSetPath   = "/level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/users[0]/profile/personal"
+	gjsonQueryPath = "level1.level2.level3.level4.level5.level6.level7.level8.level9.level10.users.0.profile.personal.name"
+	updatedUserAge = 31.0
 )
 
 var benchmarkJSON = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -27,86 +27,86 @@ var benchmarkBytesSink []byte
 var benchmarkStringSink string
 
 func benchmarkAgeInt(i int) int {
-  if i&1 == 0 {
-    return 31
-  }
-  return 32
+	if i&1 == 0 {
+		return 31
+	}
+	return 32
 }
 
 func benchmarkAgeFloat(i int) float64 {
-  if i&1 == 0 {
-    return 31.0
-  }
-  return 32.0
+	if i&1 == 0 {
+		return 31.0
+	}
+	return 32.0
 }
 
 func personalMapFromDecoded(data map[string]interface{}) map[string]interface{} {
-  level1, ok := data["level1"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level2, ok := level1["level2"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level3, ok := level2["level3"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level4, ok := level3["level4"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level5, ok := level4["level5"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level6, ok := level5["level6"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level7, ok := level6["level7"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level8, ok := level7["level8"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level9, ok := level8["level9"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  level10, ok := level9["level10"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  users, ok := level10["users"].([]interface{})
-  if !ok || len(users) == 0 {
-    return nil
-  }
-  user0, ok := users[0].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  profile, ok := user0["profile"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  personal, ok := profile["personal"].(map[string]interface{})
-  if !ok {
-    return nil
-  }
-  return personal
+	level1, ok := data["level1"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level2, ok := level1["level2"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level3, ok := level2["level3"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level4, ok := level3["level4"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level5, ok := level4["level5"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level6, ok := level5["level6"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level7, ok := level6["level7"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level8, ok := level7["level8"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level9, ok := level8["level9"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	level10, ok := level9["level10"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	users, ok := level10["users"].([]interface{})
+	if !ok || len(users) == 0 {
+		return nil
+	}
+	user0, ok := users[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	profile, ok := user0["profile"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	personal, ok := profile["personal"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return personal
 }
 
 func nameFromDecoded(data map[string]interface{}) string {
-  personal := personalMapFromDecoded(data)
-  if personal == nil {
-    return ""
-  }
-  name, _ := personal["name"].(string)
-  return name
+	personal := personalMapFromDecoded(data)
+	if personal == nil {
+		return ""
+	}
+	name, _ := personal["name"].(string)
+	return name
 }
 
 func init() {
@@ -329,7 +329,7 @@ func init() {
 // BenchmarkXJSONParse 衡量 xjson 的 JSON 解析性能
 func BenchmarkXJSONParse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-    benchmarkQuerySink, _ = MustParse(largeJSONData)
+		benchmarkQuerySink, _ = MustParse(largeJSONData)
 	}
 }
 
@@ -341,22 +341,49 @@ func BenchmarkXJSONQuery(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = doc.Query(xjsonQueryPath).String()
+		benchmarkStringSink = doc.Query(xjsonQueryPath).String()
 	}
 }
 
 func BenchmarkXJSONQuery_OnceParse_FirstHit(b *testing.B) {
-  doc, err := MustParse(largeJSONData)
-  if err != nil {
-    b.Fatal(err)
-  }
-  inner := doc.(nodeWrapper).Node
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	inner := doc.(nodeWrapper).Node
 
-  b.ResetTimer()
-  for i := 0; i < b.N; i++ {
-    engine.ResetQueryCache(inner)
-    benchmarkStringSink = doc.Query(xjsonQueryPath).String()
-  }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.ResetQueryCache(inner)
+		benchmarkStringSink = doc.Query(xjsonQueryPath).String()
+	}
+}
+
+func BenchmarkXJSONPreparedQuery(b *testing.B) {
+	prepared := MustCompileQuery(xjsonQueryPath)
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchmarkStringSink = prepared.Query(doc).String()
+	}
+}
+
+func BenchmarkXJSONPreparedQuery_OnceParse_FirstHit(b *testing.B) {
+	prepared := MustCompileQuery(xjsonQueryPath)
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	inner := doc.(nodeWrapper).Node
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.ResetQueryCache(inner)
+		benchmarkStringSink = prepared.Query(doc).String()
+	}
 }
 
 // BenchmarkXJSONSet 衡量 xjson 的 Set 方法性能
@@ -367,26 +394,26 @@ func BenchmarkXJSONSet(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-    result := doc.Query(xjsonSetPath)
+		result := doc.Query(xjsonSetPath)
 		result.Set("age", 31)
-    benchmarkQuerySink = doc.String()
+		benchmarkQuerySink = doc.String()
 	}
 }
 
 func BenchmarkXJSONSet_Prepared_MutateOnly(b *testing.B) {
-  doc, err := MustParse(largeJSONData)
-  if err != nil {
-    b.Fatal(err)
-  }
-  target := doc.Query(xjsonSetPath)
-  if err := target.Error(); err != nil {
-    b.Fatal(err)
-  }
+	doc, err := MustParse(largeJSONData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	target := doc.Query(xjsonSetPath)
+	if err := target.Error(); err != nil {
+		b.Fatal(err)
+	}
 
-  b.ResetTimer()
-  for i := 0; i < b.N; i++ {
-    benchmarkQuerySink = target.Set("age", benchmarkAgeInt(i))
-  }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchmarkQuerySink = target.Set("age", benchmarkAgeInt(i))
+	}
 }
 
 // 一次性解析后多次查询（预解析）
@@ -397,7 +424,7 @@ func BenchmarkXJSONQuery_OnceParse_MultiQuery(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = doc.Query(xjsonQueryPath).String()
+		benchmarkStringSink = doc.Query(xjsonQueryPath).String()
 	}
 }
 
@@ -409,35 +436,35 @@ func BenchmarkXJSONQuery_LazyParse_EachQuery(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-    benchmarkStringSink = doc.Query(xjsonQueryPath).String()
+		benchmarkStringSink = doc.Query(xjsonQueryPath).String()
 	}
 
 }
 
 func BenchmarkJsonIterParse(b *testing.B) {
-  for i := 0; i < b.N; i++ {
-    var data map[string]interface{}
-    if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
-    }
-    benchmarkQuerySink = data
-  }
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
+		}
+		benchmarkQuerySink = data
+	}
 }
 
 func BenchmarkStandardJSONParse(b *testing.B) {
-  for i := 0; i < b.N; i++ {
-    var data map[string]interface{}
-    if err := json.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
-    }
-    benchmarkQuerySink = data
-  }
+	for i := 0; i < b.N; i++ {
+		var data map[string]interface{}
+		if err := json.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
+		}
+		benchmarkQuerySink = data
+	}
 }
 
 // BenchmarkGJSONQuery 衡量 gjson 的 JSON 查询性能
 func BenchmarkGJSONQuery(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = gjson.GetBytes(largeJSONData, gjsonQueryPath).String()
+		benchmarkStringSink = gjson.GetBytes(largeJSONData, gjsonQueryPath).String()
 	}
 }
 
@@ -445,20 +472,20 @@ func BenchmarkGJSONQuery(b *testing.B) {
 func BenchmarkGJSONQuery_MultiQuery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = gjson.GetBytes(largeJSONData, gjsonQueryPath).String()
+		benchmarkStringSink = gjson.GetBytes(largeJSONData, gjsonQueryPath).String()
 	}
 }
 
 // BenchmarkJsonIterQuery 衡量 json-iterator/go 的查询性能
 func BenchmarkJsonIterQuery(b *testing.B) {
 	var data map[string]interface{}
-  if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
+	if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = nameFromDecoded(data)
+		benchmarkStringSink = nameFromDecoded(data)
 	}
 }
 
@@ -466,48 +493,48 @@ func BenchmarkJsonIterQuery(b *testing.B) {
 func BenchmarkJsonIterSet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var data map[string]interface{}
-    if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
+		if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
 		}
-    personal := personalMapFromDecoded(data)
-    if personal == nil {
-      b.Fatal("personal path not found")
-    }
-    personal["age"] = updatedUserAge
-    out, err := benchmarkJSON.Marshal(data)
-    if err != nil {
-      b.Fatal(err)
-    }
-    benchmarkBytesSink = out
+		personal := personalMapFromDecoded(data)
+		if personal == nil {
+			b.Fatal("personal path not found")
+		}
+		personal["age"] = updatedUserAge
+		out, err := benchmarkJSON.Marshal(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkBytesSink = out
 	}
 }
 
 func BenchmarkJsonIterSet_Prepared_MutateOnly(b *testing.B) {
-  var data map[string]interface{}
-  if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
-  personal := personalMapFromDecoded(data)
-  if personal == nil {
-    b.Fatal("personal path not found")
-  }
+	var data map[string]interface{}
+	if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
+	personal := personalMapFromDecoded(data)
+	if personal == nil {
+		b.Fatal("personal path not found")
+	}
 
-  b.ResetTimer()
-  for i := 0; i < b.N; i++ {
-    personal["age"] = benchmarkAgeFloat(i)
-    benchmarkQuerySink = personal["age"]
-  }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		personal["age"] = benchmarkAgeFloat(i)
+		benchmarkQuerySink = personal["age"]
+	}
 }
 
 // json-iterator/go 一次性解析后多次查询
 func BenchmarkJsonIterQuery_OnceParse_MultiQuery(b *testing.B) {
 	var data map[string]interface{}
-  if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
+	if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = nameFromDecoded(data)
+		benchmarkStringSink = nameFromDecoded(data)
 	}
 }
 
@@ -516,10 +543,10 @@ func BenchmarkJsonIterQuery_LazyParse_EachQuery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var data map[string]interface{}
-    if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
+		if err := benchmarkJSON.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
 		}
-    benchmarkStringSink = nameFromDecoded(data)
+		benchmarkStringSink = nameFromDecoded(data)
 	}
 }
 
@@ -528,23 +555,23 @@ func BenchmarkStandardJSONDecode(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		decoder := json.NewDecoder(bytes.NewReader(largeJSONData))
 		var data interface{}
-    if err := decoder.Decode(&data); err != nil {
-      b.Fatal(err)
-    }
-    benchmarkQuerySink = data
+		if err := decoder.Decode(&data); err != nil {
+			b.Fatal(err)
+		}
+		benchmarkQuerySink = data
 	}
 }
 
 // BenchmarkStandardJSONQuery 衡量 encoding/json 的查询性能
 func BenchmarkStandardJSONQuery(b *testing.B) {
-  var data map[string]interface{}
-  if err := json.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
+	var data map[string]interface{}
+	if err := json.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkStringSink = nameFromDecoded(data)
+		benchmarkStringSink = nameFromDecoded(data)
 	}
 }
 
@@ -552,48 +579,48 @@ func BenchmarkStandardJSONQuery(b *testing.B) {
 func BenchmarkStandardJSONSet(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var data map[string]interface{}
-    if err := json.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
+		if err := json.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
 		}
-    personal := personalMapFromDecoded(data)
-    if personal == nil {
-      b.Fatal("personal path not found")
-    }
-    personal["age"] = updatedUserAge
-    out, err := json.Marshal(data)
-    if err != nil {
-      b.Fatal(err)
-    }
-    benchmarkBytesSink = out
+		personal := personalMapFromDecoded(data)
+		if personal == nil {
+			b.Fatal("personal path not found")
+		}
+		personal["age"] = updatedUserAge
+		out, err := json.Marshal(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkBytesSink = out
 	}
 }
 
 func BenchmarkStandardJSONSet_Prepared_MutateOnly(b *testing.B) {
-  var data map[string]interface{}
-  if err := json.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
-  personal := personalMapFromDecoded(data)
-  if personal == nil {
-    b.Fatal("personal path not found")
-  }
+	var data map[string]interface{}
+	if err := json.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
+	personal := personalMapFromDecoded(data)
+	if personal == nil {
+		b.Fatal("personal path not found")
+	}
 
-  b.ResetTimer()
-  for i := 0; i < b.N; i++ {
-    personal["age"] = benchmarkAgeFloat(i)
-    benchmarkQuerySink = personal["age"]
-  }
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		personal["age"] = benchmarkAgeFloat(i)
+		benchmarkQuerySink = personal["age"]
+	}
 }
 
 // encoding/json 一次性解析后多次查询
 func BenchmarkStandardJSONQuery_OnceParse_MultiQuery(b *testing.B) {
 	var data map[string]interface{}
-  if err := json.Unmarshal(largeJSONData, &data); err != nil {
-    b.Fatal(err)
-  }
+	if err := json.Unmarshal(largeJSONData, &data); err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-    benchmarkQuerySink = nameFromDecoded(data)
+		benchmarkQuerySink = nameFromDecoded(data)
 	}
 }
 
@@ -602,9 +629,9 @@ func BenchmarkStandardJSONQuery_LazyParse_EachQuery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var data map[string]interface{}
-    if err := json.Unmarshal(largeJSONData, &data); err != nil {
-      b.Fatal(err)
+		if err := json.Unmarshal(largeJSONData, &data); err != nil {
+			b.Fatal(err)
 		}
-    benchmarkStringSink = nameFromDecoded(data)
+		benchmarkStringSink = nameFromDecoded(data)
 	}
 }

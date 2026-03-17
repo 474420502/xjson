@@ -73,6 +73,102 @@ func TestQueryPlanAndCompiledQueryCaches(t *testing.T) {
 	if cached, ok := getCachedCompiledQuery("/a/b[1]"); !ok || len(cached) != len(tokens) {
 		t.Fatalf("expected compiled query cache hit, got ok=%v len=%d", ok, len(cached))
 	}
+
+	compiled, err := CompileQuery("/a/b[1]")
+	if err != nil {
+		t.Fatalf("CompileQuery failed: %v", err)
+	}
+	if compiled.fastPlan == nil || len(compiled.fastSteps) != 3 || compiled.specialized == nil || compiled.Path() != "/a/b[1]" {
+		t.Fatalf("unexpected compiled query fast path state: %#v", compiled)
+	}
+
+	compiledGeneric, err := CompileQuery("/a/../a")
+	if err != nil {
+		t.Fatalf("CompileQuery generic path failed: %v", err)
+	}
+	if compiledGeneric.fastPlan != nil || len(compiledGeneric.tokens) == 0 {
+		t.Fatalf("expected generic compiled query tokens, got %#v", compiledGeneric)
+	}
+}
+
+func TestFlattenFastQueryPlanAndSteps(t *testing.T) {
+	plan, ok := compileFastQueryPlan("/a/b[2]/name")
+	if !ok {
+		t.Fatal("expected fast query plan")
+	}
+	steps := flattenFastQueryPlan(plan)
+	if len(steps) != 4 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].kind != fastQueryStepKey || steps[0].key != "a" {
+		t.Fatalf("unexpected first step: %#v", steps[0])
+	}
+	if steps[2].kind != fastQueryStepIndex || steps[2].index != 2 {
+		t.Fatalf("unexpected index step: %#v", steps[2])
+	}
+
+	root, err := MustParse([]byte(`{"a":{"b":[{"name":"x"},{"name":"z"},{"name":"n"}]}}`))
+	if err != nil {
+		t.Fatalf("MustParse failed: %v", err)
+	}
+	if got := executeFastQuerySteps(root, steps); !got.IsValid() || got.String() != "n" {
+		t.Fatalf("unexpected fast step result: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
+
+	specialized := buildSpecializedFastQuery(steps)
+	if specialized == nil || specialized.kind != specializedFastQueryKeysIndexKeys {
+		t.Fatalf("unexpected specialized query shape: %#v", specialized)
+	}
+	if len(specialized.preSuffixes) != 2 || specialized.arraySuffix != "[2]/name" || len(specialized.postSuffixes) != 1 {
+		t.Fatalf("unexpected specialized suffix metadata: %#v", specialized)
+	}
+	if got := executeSpecializedFastQuery(root, specialized); !got.IsValid() || got.String() != "n" {
+		t.Fatalf("unexpected specialized fast step result: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
+
+	keyOnlyPlan, ok := compileFastQueryPlan("/a/x/y")
+	if !ok {
+		t.Fatal("expected key-only fast query plan")
+	}
+	keyOnlySpec := buildSpecializedFastQuery(flattenFastQueryPlan(keyOnlyPlan))
+	if keyOnlySpec == nil || keyOnlySpec.kind != specializedFastQueryAllKeys {
+		t.Fatalf("unexpected key-only specialized query shape: %#v", keyOnlySpec)
+	}
+	if len(keyOnlySpec.suffixes) != 3 || keyOnlySpec.suffixes[0] != "/a/x/y" || keyOnlySpec.suffixes[2] != "/y" {
+		t.Fatalf("unexpected key-only suffixes: %#v", keyOnlySpec.suffixes)
+	}
+}
+
+func TestCompiledQueryExecution(t *testing.T) {
+	root, err := MustParse([]byte(`{"a":{"b":[{"name":"x"},{"name":"y"}]},"arr":[1,2,3]}`))
+	if err != nil {
+		t.Fatalf("MustParse failed: %v", err)
+	}
+
+	fast, err := CompileQuery("/a/b[1]/name")
+	if err != nil {
+		t.Fatalf("CompileQuery fast path failed: %v", err)
+	}
+	if got := fast.Query(root); !got.IsValid() || got.String() != "y" {
+		t.Fatalf("unexpected fast compiled query result: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
+
+	generic, err := CompileQuery("/a/b[1]/../[0]/name")
+	if err != nil {
+		t.Fatalf("CompileQuery generic failed: %v", err)
+	}
+	if got := generic.Query(root); !got.IsValid() || got.String() != "x" {
+		t.Fatalf("unexpected generic compiled query result: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
+
+	if got := (*CompiledQuery)(nil).Query(root); got.IsValid() {
+		t.Fatal("expected nil compiled query to return invalid node")
+	}
+
+	ResetQueryCache(root)
+	if got := fast.Query(root); !got.IsValid() || got.String() != "y" {
+		t.Fatalf("unexpected repeated fast compiled query result after root reset: valid=%v val=%q err=%v", got.IsValid(), got.String(), got.Error())
+	}
 }
 
 func TestQueryLowLevelHelpers(t *testing.T) {

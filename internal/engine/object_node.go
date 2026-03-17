@@ -23,12 +23,37 @@ func compareStringBytes(s string, b []byte) bool {
 
 type objectNode struct {
 	baseNode
-	value      map[string]core.Node
-	rawIndex   map[string]rawValueSpan
-	rawScanPos int
-	rawDone    bool
-	sortedKeys []string
-	isDirty    bool
+	value       map[string]core.Node
+	singleKey   string
+	singleChild core.Node
+	hasSingle   bool
+	rawIndex    map[string]rawValueSpan
+	rawScanPos  int
+	rawDone     bool
+	sortedKeys  []string
+	isDirty     bool
+}
+
+func (n *objectNode) rebuildInlineEntries() {
+	if len(n.value) != 1 {
+		n.singleKey = ""
+		n.singleChild = nil
+		n.hasSingle = false
+		return
+	}
+	for key, child := range n.value {
+		n.singleKey = key
+		n.singleChild = child
+		n.hasSingle = true
+		return
+	}
+}
+
+func (n *objectNode) lookupInlineChild(key string) (core.Node, bool) {
+	if n.hasSingle && n.singleKey == key {
+		return n.singleChild, true
+	}
+	return nil, false
 }
 
 type rawValueSpan struct {
@@ -50,6 +75,9 @@ func (n *objectNode) Get(key string) core.Node {
 		return n
 	}
 	if n.parsed.Load() || len(n.raw) == 0 {
+		if child, ok := n.lookupInlineChild(key); ok {
+			return child
+		}
 		if child, ok := n.value[key]; ok {
 			return child
 		}
@@ -246,6 +274,7 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 	}
 
 	if existing, exists := n.value[key]; exists && tryMutateScalarNode(existing, value) {
+		n.rebuildInlineEntries()
 		return n
 	}
 
@@ -255,6 +284,7 @@ func (n *objectNode) Set(key string, value interface{}) core.Node {
 		return n
 	}
 	n.value[key] = child
+	n.rebuildInlineEntries()
 
 	return n
 }
@@ -282,6 +312,7 @@ func (n *objectNode) AsMap() map[string]core.Node {
 		return nil
 	}
 	n.lazyParse()
+	n.rebuildInlineEntries()
 	return n.value
 }
 
@@ -290,6 +321,7 @@ func (n *objectNode) MustAsMap() map[string]core.Node {
 		panic(n.err)
 	}
 	n.lazyParse()
+	n.rebuildInlineEntries()
 	return n.value
 }
 
@@ -411,6 +443,7 @@ func (n *objectNode) lazyParse() {
 		}
 		n.value = m
 		n.sortedKeys = cast.sortedKeys
+		n.rebuildInlineEntries()
 	}
 }
 
@@ -456,4 +489,5 @@ func (n *objectNode) addChild(key string, child core.Node) {
 	}
 
 	n.value[key] = child
+	n.rebuildInlineEntries()
 }
